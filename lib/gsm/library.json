@@ -1,0 +1,11 @@
+{
+  "name": "gsm610",
+  "version": "1.0.19",
+  "description": "GSM 06.10 full-rate codec (libgsm by Jutta Degener and Carsten Bormann, TU Berlin) built with WAV49 support for FRN.",
+  "license": "TU-Berlin-2.0",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "flags": ["-DWAV49", "-DSASR", "-DNeedFunctionPrototypes=1", "-O2", "-w"]
+  }
+}

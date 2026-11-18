@@ -1,0 +1,40 @@
+name: Build firmware
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native tests (protocol, codec, DSP, CW)
+        run: ./test/native/run.sh
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Build
+        run: pio run -e kv4p
+      - name: Collect binaries
+        run: |
+          mkdir out
+          cp .pio/build/kv4p/firmware.bin out/
+          cp .pio/build/kv4p/bootloader.bin out/
+          cp .pio/build/kv4p/partitions.bin out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kv4p-frn-gateway-firmware
+          path: out/
