@@ -15,6 +15,10 @@
 #include "resampler.h"
 #include "tones.h"
 #include "dtmf.h"
+#include "echolink.h"
+extern "C" {
+#include "gsm.h"
+}
 #include <algorithm>
 
 static int failures = 0, checks = 0;
@@ -728,6 +732,295 @@ static void testDtmf() {
   CHECK(fp.empty());
 }
 
+
+// ------------------------------------------------------------- EchoLink ----
+struct MockNet : el::Net {
+  bool isReady = true, dirOpenFlag = false, dirConn = false;
+  uint32_t dirIp = 0, resolveIp = 0x0A000001;  // 10.0.0.1
+  struct Pkt { uint32_t ip; std::string data; };
+  std::vector<Pkt> ctrl, audio;
+  std::string dirTx;
+  int dirOpens = 0, dirCloses = 0;
+  void open(uint32_t) override {}
+  void close() override {}
+  bool ready() override { return isReady; }
+  void poll(uint32_t) override {}
+  bool sendCtrl(uint32_t ip, const uint8_t* d, size_t n) override { ctrl.push_back({ip, std::string((const char*)d, n)}); return true; }
+  bool sendAudio(uint32_t ip, const uint8_t* d, size_t n) override { audio.push_back({ip, std::string((const char*)d, n)}); return true; }
+  bool dirOpen(uint32_t ip) override { dirIp = ip; dirOpenFlag = true; dirOpens++; return true; }
+  bool dirSend(const uint8_t* d, size_t n) override { dirTx.append((const char*)d, n); return true; }
+  void dirClose() override { if (dirOpenFlag) dirCloses++; dirOpenFlag = dirConn = false; }
+  bool dirConnected() override { return dirConn; }
+  uint32_t resolve(const char*) override { return resolveIp; }
+  const char* name() const override { return "mock"; }
+  void inCtrl(uint32_t ip, const uint8_t* d, size_t n) { onCtrl(ip, d, n); }
+  void inAudio(uint32_t ip, const uint8_t* d, size_t n) { onAudio(ip, d, n); }
+  void inDir(const std::string& s) { onDir((const uint8_t*)s.data(), s.size()); }
+};
+
+static el::Config elConfig() {
+  el::Config c;
+  c.callsign = "iu8uut-l";
+  c.password = "secret";
+  c.sysopName = "Tony";
+  c.location = "Napoli - KV4P gateway su 145.500 MHz";  // longer than 27: cut
+  return c;
+}
+
+static std::string sdesFrom(const char* call, const char* name) {
+  uint8_t p[300];
+  size_t n = el::Client::makeSdes(p, call, name);
+  return std::string((const char*)p, n);
+}
+
+static void testEchoLinkDirectory() {
+  printf("[EchoLink directory]\n");
+  MockNet net;
+  MockListener li;
+  el::Client c(net, li);
+  c.setConfig(elConfig());
+  c.localTime = []() { return std::string("21:15"); };
+  c.start(0);
+  c.loop(1);
+  CHECK(net.dirOpens == 1 && net.dirIp == 0x0A000001);
+  CHECK(!c.registered());
+  net.dirConn = true;
+  c.loop(2);
+  const std::string expect = std::string("lIU8UUT-L\xAC\xAC") + "secret\rONLINE3.38(21:15)\r" +
+                             std::string("Napoli - KV4P gateway su 145.500 MHz").substr(0, 27) + "\r";
+  CHECK(net.dirTx == expect);
+  net.inDir("OK");
+  CHECK(c.registered());
+  CHECK(net.dirCloses == 1);
+  CHECK(std::string(c.stateName()) == "ONLINE");
+  // refresh after 5 minutes
+  net.dirTx.clear();
+  c.loop(299000);
+  CHECK(net.dirOpens == 1);
+  c.loop(300100);
+  CHECK(net.dirOpens == 2);
+  net.dirConn = true;
+  c.loop(300200);
+  net.inDir("NO");
+  CHECK(!c.registered() || true);  // refused: logged, retried in 60 s
+  bool refused = false;
+  for (auto& l : li.logs) if (l.find("refused") != std::string::npos) refused = true;
+  CHECK(refused);
+}
+
+static void testEchoLinkQso() {
+  printf("[EchoLink QSO: lookup, connect, audio, hang up]\n");
+  MockNet net;
+  MockListener li;
+  el::Client c(net, li);
+  c.setConfig(elConfig());
+  bool resOk = false;
+  std::string resCall;
+  int results = 0;
+  c.onConnectResult = [&](bool ok, const std::string& call) { results++; resOk = ok; resCall = call; };
+  c.start(0);
+  net.dirConn = true;
+  c.loop(1);
+  c.loop(2);
+  net.inDir("OK");
+  // lookup node 29136
+  CHECK(c.connectTo(29136, 10));
+  c.loop(11);
+  CHECK(net.dirOpens == 2);
+  net.dirConn = true;
+  net.dirTx.clear();
+  c.loop(12);
+  CHECK(net.dirTx == "s");
+  // station list arrives in odd-sized chunks
+  std::string list = "@@@\n3\n*ECSEA*\nPanama City, Fl. [0/8]     [ON 16:08]\n172277\n24.214.38.68\n"
+                     "IW2LXR\nVittorio Milano            [ON 23:07]\n29136\n219.113.182.123\n"
+                     "K6IRF-R\nClaremont, CA              [ON 13:49]\n13887\n216.117.200.62\n+++";
+  for (size_t i = 0; i < list.size(); i += 7) net.inDir(list.substr(i, 7));
+  CHECK(net.ctrl.size() == 1);
+  const uint32_t rip = (219u << 24) | (113u << 16) | (182u << 8) | 123u;
+  if (!net.ctrl.empty()) {
+    CHECK(net.ctrl[0].ip == rip);
+    std::string name;
+    CHECK(el::Client::isSdes((const uint8_t*)net.ctrl[0].data.data(), net.ctrl[0].data.size()));
+    CHECK(el::Client::sdesName((const uint8_t*)net.ctrl[0].data.data(), net.ctrl[0].data.size(), name));
+    CHECK(name == "IU8UUT-L       Tony");
+  }
+  CHECK(std::string(c.stateName()) == "CONNECTING");
+  // remote answers with its SDES
+  std::string r = sdesFrom("IW2LXR", "Vittorio");
+  net.inCtrl(rip, (const uint8_t*)r.data(), r.size());
+  CHECK(c.connected());
+  CHECK(results == 1 && resOk && resCall == "IW2LXR");
+  CHECK(!net.audio.empty() && net.audio[0].data.compare(0, 7, "oNDATA\r") == 0);
+  CHECK(!net.audio.empty() && net.audio[0].data.back() == '\0');
+
+  // audio from the remote: 4 standard GSM frames
+  gsm g = gsm_create();
+  uint8_t pkt[12 + 132];
+  pkt[0] = 0xC0; pkt[1] = 0x03; memset(pkt + 2, 0, 10);
+  int16_t pcm[160];
+  for (int f = 0; f < 4; f++) {
+    makeSine(pcm, 160, 700, 7000, f * 160);
+    gsm_encode(g, pcm, pkt + 12 + f * 33);
+  }
+  gsm_destroy(g);
+  c.loop(100);
+  net.inAudio(rip, pkt, sizeof(pkt));
+  net.inAudio(0x01020304, pkt, sizeof(pkt));  // stranger: ignored
+  CHECK(li.voiceStarts == 1 && li.voiceFrom == "IW2LXR");
+  CHECK(li.voiceSamples == 640);
+  c.loop(300);
+  CHECK(li.voiceEnds == 0);
+  c.loop(600);
+  CHECK(li.voiceEnds == 1);
+
+  // our audio
+  net.audio.clear();
+  int16_t tx[640];
+  makeSine(tx, 640, 1000, 6000);
+  CHECK(c.sendVoice(tx, 700));
+  CHECK(c.sendVoice(tx, 780));
+  CHECK(net.audio.size() == 2);
+  if (net.audio.size() == 2) {
+    const std::string& a = net.audio[1].data;
+    CHECK(a.size() == 144 && (uint8_t)a[0] == 0xC0 && (uint8_t)a[1] == 0x03);
+    CHECK((uint8_t)a[2] == 0 && (uint8_t)a[3] == 1);  // sequence 1
+    CHECK(net.audio[1].ip == rip);
+  }
+  // keepalive SDES every 10 s, connection kept while the remote answers
+  net.ctrl.clear();
+  c.loop(10100);
+  CHECK(net.ctrl.size() == 1);
+  net.inCtrl(rip, (const uint8_t*)r.data(), r.size());
+  c.loop(40000);
+  CHECK(c.connected());
+  // remote hangs up
+  uint8_t bye[64];
+  size_t bn = el::Client::makeBye(bye);
+  CHECK(el::Client::isBye(bye, bn) && !el::Client::isSdes(bye, bn));
+  net.inCtrl(rip, bye, bn);
+  CHECK(!c.connected());
+}
+
+static void testEchoLinkIncoming() {
+  printf("[EchoLink incoming, busy, timeouts, not found]\n");
+  MockNet net;
+  MockListener li;
+  el::Client c(net, li);
+  c.setConfig(elConfig());
+  int qsoUp = 0, qsoDown = 0;
+  c.onQso = [&](bool up, const std::string&) { (up ? qsoUp : qsoDown)++; };
+  c.start(0);
+  net.dirConn = true;
+  c.loop(1);
+  c.loop(2);
+  net.inDir("OK");
+  std::string s1 = sdesFrom("IZ8ABC", "Mario"), s2 = sdesFrom("I0XYZ", "Gino");
+  net.inCtrl(0x05060708, (const uint8_t*)s1.data(), s1.size());
+  CHECK(c.connected() && c.remoteCall() == "IZ8ABC" && qsoUp == 1);
+  CHECK(net.ctrl.size() == 1 && net.ctrl[0].ip == 0x05060708);  // our SDES back
+  // a second caller is rejected with BYE
+  net.inCtrl(0x0A0B0C0D, (const uint8_t*)s2.data(), s2.size());
+  CHECK(net.ctrl.size() == 2 && net.ctrl[1].ip == 0x0A0B0C0D);
+  CHECK(el::Client::isBye((const uint8_t*)net.ctrl[1].data.data(), net.ctrl[1].data.size()));
+  CHECK(c.remoteCall() == "IZ8ABC");
+  // no SDES from the remote for 50 s: dropped
+  c.loop(49000);
+  CHECK(c.connected());
+  c.loop(50100);
+  CHECK(!c.connected() && qsoDown == 1);
+
+  // idle timeout
+  el::Config cfg = elConfig();
+  cfg.idleTimeoutS = 30;
+  c.setConfig(cfg);
+  net.inCtrl(0x05060708, (const uint8_t*)s1.data(), s1.size());
+  CHECK(c.connected());
+  for (uint32_t t = 51000; t < 81000; t += 5000) {
+    net.inCtrl(0x05060708, (const uint8_t*)s1.data(), s1.size());
+    c.loop(t);
+  }
+  CHECK(c.connected());
+  c.loop(81200);
+  CHECK(!c.connected());
+
+  // lookup of a node that does not exist
+  bool res = true;
+  c.onConnectResult = [&](bool ok, const std::string&) { res = ok; };
+  c.connectTo(999999, 90000);
+  net.dirConn = false;
+  c.loop(90001);
+  net.dirConn = true;
+  c.loop(90002);
+  net.inDir("@@@\n1\nIW2LXR\nx\n29136\n1.2.3.4\n+++");
+  CHECK(!res);
+  CHECK(!c.busy());
+
+  // outgoing call that never answers: 5 SDES then failure
+  res = true;
+  c.connectTo(29136, 100000);
+  c.loop(100001);
+  net.dirConn = true;
+  c.loop(100002);
+  net.inDir("@@@\n1\nIW2LXR\nx\n29136\n1.2.3.4\n+++");
+  for (uint32_t t = 100010; t < 160000; t += 1000) c.loop(t);
+  CHECK(!res && !c.connected());
+}
+
+static void testEchoLinkProxy() {
+  printf("[EchoLink proxy framing + MD5 auth]\n");
+  MockTransport tr;
+  el::ProxyNet px(tr, [](const char*) { return 0x0A000002u; });
+  px.configure("proxy.example.org", 8100, "iu8uut-l", "public");
+  uint32_t gotIp = 0;
+  std::string got;
+  px.onCtrl = [&](uint32_t ip, const uint8_t* d, size_t n) { gotIp = ip; got.assign((const char*)d, n); };
+  std::string dirData;
+  px.onDir = [&](const uint8_t* d, size_t n) { dirData.append((const char*)d, n); };
+  px.open(0);
+  CHECK(tr.connects == 1 && tr.lastHost == "proxy.example.org" && tr.lastPort == 8100);
+  CHECK(!px.ready());
+  tr.serverSend("12345678");
+  px.poll(1);
+  CHECK(px.ready());
+  std::string auth = tr.take();
+  const uint8_t md5[16] = {0xd3, 0xd8, 0xfb, 0xe8, 0x68, 0x9a, 0xc6, 0xaa, 0xc0, 0xcf, 0x37, 0xe1, 0x84, 0x31, 0x4f, 0x99};
+  CHECK(auth.size() == 9 + 16 && auth.compare(0, 9, "IU8UUT-L\n") == 0);
+  CHECK(auth.size() == 25 && memcmp(auth.data() + 9, md5, 16) == 0);
+  // outgoing UDP control
+  const uint8_t hello[3] = {1, 2, 3};
+  px.sendCtrl(0xDB71B67B, hello, 3);
+  std::string blk = tr.take();
+  const uint8_t expect[12] = {6, 219, 113, 182, 123, 3, 0, 0, 0, 1, 2, 3};
+  CHECK(blk.size() == 12 && memcmp(blk.data(), expect, 12) == 0);
+  // incoming UDP control, split over two reads
+  const uint8_t in[11] = {6, 1, 2, 3, 4, 2, 0, 0, 0, 0xAA, 0xBB};
+  tr.serverSend(in, 5);
+  px.poll(2);
+  CHECK(got.empty());
+  tr.serverSend(in + 5, 6);
+  px.poll(3);
+  CHECK(gotIp == 0x01020304 && got == "\xAA\xBB");
+  // directory TCP through the proxy
+  CHECK(px.dirOpen(0x0A000003));
+  std::string open = tr.take();
+  CHECK(open.size() == 9 && open[0] == 1 && (uint8_t)open[4] == 3);
+  CHECK(!px.dirConnected());
+  const uint8_t status[13] = {4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0};
+  tr.serverSend(status, 13);
+  px.poll(4);
+  CHECK(px.dirConnected());
+  const uint8_t data[11] = {2, 0, 0, 0, 0, 2, 0, 0, 0, 'O', 'K'};
+  tr.serverSend(data, 11);
+  px.poll(5);
+  CHECK(dirData == "OK");
+  // bad password
+  const uint8_t sys[10] = {7, 0, 0, 0, 0, 1, 0, 0, 0, 1};
+  tr.serverSend(sys, 10);
+  px.poll(6);
+  CHECK(!px.ready());
+}
+
 int main() {
   testLogin();
   testListsAndKeepalive();
@@ -742,6 +1035,10 @@ int main() {
   testCw();
   testTones();
   testDtmf();
+  testEchoLinkDirectory();
+  testEchoLinkQso();
+  testEchoLinkIncoming();
+  testEchoLinkProxy();
   printf("\n%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

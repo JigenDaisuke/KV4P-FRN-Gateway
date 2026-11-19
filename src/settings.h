@@ -77,6 +77,21 @@ struct Settings {
   String dtmfRoom[DTMF_SLOTS] = {"Nazionale", "Prove", "Ham Radio Network", "Test"};
   uint8_t dtmfReturnMin = 0;     // back to the main room after N min without traffic (0 = never)
 
+  // EchoLink (test). The gateway is on ONE system at a time: FRN or EchoLink.
+  // Switch from the radio with DTMF "#*1" (FRN) / "#*2" (EchoLink).
+  uint8_t startSystem = 0;       // 0 = FRN, 1 = EchoLink (at power-up)
+  String elCallsign;             // node callsign, e.g. "IU8UUT-L"
+  String elPassword;
+  String elSysop;                // name shown to connected stations
+  String elLocation;             // directory description (max 27 chars)
+  String elInfo = "Gateway KV4P ESP32 - FRN ITALIA";
+  String elServer = "servers.echolink.org";
+  String elProxyHost;            // empty = direct UDP 5198/5199 (forward the ports)
+  uint16_t elProxyPort = 8100;
+  String elProxyPass = "PUBLIC";
+  bool elAccept = true;          // accept incoming connections
+  uint16_t elIdleMin = 10;       // hang up after N min without audio (0 = never)
+
   // CW identification on the radio side
   bool cwIdEnabled = true;
   uint8_t cwIdMinutes = 10;      // send callsign in CW after an over, at most every N min

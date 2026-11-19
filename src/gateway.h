@@ -11,6 +11,7 @@
 #include "audio_io.h"
 #include "cw.h"
 #include "dtmf.h"
+#include "echolink.h"
 #include "frn_client.h"
 #include "radio_sa818.h"
 #include "settings.h"
@@ -22,6 +23,8 @@ struct GatewayStatus {
   char talker[64];
   char lastLocal[24];
   char room[48];
+  char sys[10];        // "FRN" / "EchoLink"
+  char elRemote[24];   // EchoLink station we are connected to
   bool ptt = false, carrier = false, wifi = false, radioOk = false;
   int rssi = 0;
   int rxLevel = 0;
@@ -84,6 +87,22 @@ class Gateway : public frn::Listener {
   void onDtmf(char d, uint32_t now);
   void executeCommand(uint32_t now);
   void switchRoom(const String& room, uint32_t now, const char* why);
+  // Active network system (FRN or EchoLink) - one at a time
+  enum class Sys : uint8_t { Frn, EchoLink };
+  bool sysConfigured(Sys s) const;
+  void switchSystem(Sys s, uint32_t now);
+  void netStart(uint32_t now);
+  void netStop(uint32_t now);
+  void netLoop(uint32_t now);
+  bool netReady();              // logged in (FRN) / registered (EchoLink)
+  bool netLinked();             // voice can go out now
+  void netRequestTx(uint32_t now);
+  bool netTxWanted();
+  bool netTxActive();
+  bool netSend(const int16_t* pcm, uint32_t now);
+  void netEndTx(uint32_t now);
+  size_t netPacket() const;
+  const char* netStateName();
   void updateLed(uint32_t now);
   static const char* gwName(GwState s);
 
@@ -92,6 +111,12 @@ class Gateway : public frn::Listener {
   AudioIO audio_;
   WiFiTransport* transport_ = nullptr;
   frn::Client* frn_ = nullptr;
+  el::Net* elNet_ = nullptr;
+  el::Client* el_ = nullptr;
+  WiFiTransport* elTcp_ = nullptr;
+  Sys sys_ = Sys::Frn;
+  volatile int pendingElResult_ = 0;  // 1 = connected, 2 = failed (from the EchoLink callback)
+  String elResultCall_;
   CwGenerator cw_;
   ToneSequence tone_;
   uint8_t pendingTone_ = TONE_NONE;  // tone to play when the current local TX drains

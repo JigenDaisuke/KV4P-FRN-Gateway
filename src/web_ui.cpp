@@ -110,6 +110,8 @@ void handleStatus() {
   j.num("adc", st.adcRate);
   j.num("clients", st.clients);
   j.str("net", st.room);
+  j.str("sys", st.sys);
+  j.str("elRemote", st.elRemote);
   j.num("rx", (long)st.voiceRx);
   j.num("tx", (long)st.voiceTx);
   j.num("logins", (long)st.logins);
@@ -184,6 +186,18 @@ void handleConfig() {
   j.num("tBusy", s.toneBusy);
   j.num("tBusyHz", s.toneBusyHz);
   j.num("tLevel", s.toneLevel);
+  j.num("sysStart", s.startSystem);
+  j.str("elCall", s.elCallsign);
+  j.boolean("elPass_set", s.elPassword.length() > 0);
+  j.str("elSysop", s.elSysop);
+  j.str("elLoc", s.elLocation);
+  j.str("elInfo", s.elInfo);
+  j.str("elServer", s.elServer);
+  j.str("elPxHost", s.elProxyHost);
+  j.num("elPxPort", s.elProxyPort);
+  j.str("elPxPass", s.elProxyPass);
+  j.boolean("elAccept", s.elAccept);
+  j.num("elIdle", s.elIdleMin);
   j.boolean("dtmfOn", s.dtmfEnabled);
   j.num("dtmfRet", s.dtmfReturnMin);
   for (int i = 0; i < DTMF_SLOTS; i++) {
@@ -288,6 +302,23 @@ void handleSave() {
   s.toneBusy = clampT<uint8_t>(argL("tBusy", s.toneBusy), 0, tones::PRESETS - 1);
   s.toneBusyHz = clampT<uint16_t>(argL("tBusyHz", s.toneBusyHz), 300, 3000);
   s.toneLevel = clampT<uint16_t>(argL("tLevel", s.toneLevel), 500, 30000);
+
+  s.startSystem = clampT<uint8_t>(argL("sysStart", s.startSystem), 0, 1);
+  s.elCallsign = arg("elCall", s.elCallsign);
+  s.elCallsign.trim();
+  s.elCallsign.toUpperCase();
+  if (arg("elPass", "").length()) s.elPassword = arg("elPass", "");
+  s.elSysop = arg("elSysop", s.elSysop);
+  s.elLocation = arg("elLoc", s.elLocation);
+  if (s.elLocation.length() > 27) s.elLocation = s.elLocation.substring(0, 27);
+  s.elInfo = arg("elInfo", s.elInfo);
+  s.elServer = arg("elServer", s.elServer);
+  s.elProxyHost = arg("elPxHost", s.elProxyHost);
+  s.elProxyHost.trim();
+  s.elProxyPort = clampT<uint16_t>(argL("elPxPort", s.elProxyPort), 1, 65535);
+  s.elProxyPass = arg("elPxPass", s.elProxyPass);
+  s.elAccept = server.hasArg("elAccept");
+  s.elIdleMin = clampT<uint16_t>(argL("elIdle", s.elIdleMin), 0, 240);
 
   s.dtmfEnabled = server.hasArg("dtmfOn");
   s.dtmfReturnMin = clampT<uint8_t>(argL("dtmfRet", s.dtmfReturnMin), 0, 240);
