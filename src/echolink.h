@@ -203,7 +203,6 @@ class Client {
   std::string rcall_, rname_;
   uint32_t lastSdesTx_ = 0, lastSdesRx_ = 0, lastAudio_ = 0, lastRxAudio_ = 0;
   int retries_ = 0;
-  int dbgPackets_ = 0;            // log the first packets after a call (diagnostics)
   uint16_t seq_ = 0;
   bool rxActive_ = false;
   void* enc_ = nullptr;

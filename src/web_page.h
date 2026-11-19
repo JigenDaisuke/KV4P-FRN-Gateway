@@ -62,7 +62,7 @@ a{color:var(--ac2)}
  <label>Tipo stazione<select name="frnCl"><option value="1">Gateway</option><option value="0">Crosslink</option><option value="2">PC Only</option></select></label>
  <label>Banda / canale (BC)<input name="frnBC" id="bc"></label></div>
  <p class="hint" id="bch"></p><p class="hint">Nominativo, nome, citt&agrave; e nazione sono obbligatori: senza, il server rifiuta il collegamento.</p></div></section>
-<section class="tab" id="el"><div class="card"><h2>EchoLink (versione di prova)</h2><div class="grid">
+<section class="tab" id="el"><div class="card"><h2>EchoLink</h2><div class="grid">
  <label>Sistema all'accensione<select name="sysStart"><option value="0">FRN</option><option value="1">EchoLink</option></select></label>
  <label>Nominativo del nodo<input name="elCall" placeholder="IU8UUT-L" style="text-transform:uppercase"></label>
  <label>Password EchoLink<input name="elPass" type="password" data-s="elPass_set"></label>
@@ -72,7 +72,7 @@ a{color:var(--ac2)}
  <label class="ck"><input type="checkbox" name="elAccept">Accetta chiamate in arrivo</label>
  <label>Chiudi dopo inattivit&agrave; (min, 0 = mai)<input name="elIdle" type="number" min="0" max="240"></label></div>
  <label style="margin-top:12px">Messaggio informativo inviato a chi si collega<input name="elInfo"></label>
- <p class="hint">Il gateway &egrave; su <b>un sistema alla volta</b>. Dalla radio: <b>#*1</b> = FRN, <b>#*2</b> = EchoLink. In EchoLink: <b>#</b> + numero nodo = chiama il nodo (es. <b>#9999</b> = test), <b>#0</b> = chiudi il collegamento. Il nominativo -L deve essere validato da EchoLink.</p></div>
+ <p class="hint">Il gateway &egrave; su <b>un sistema alla volta</b>. Dalla radio: <b>#*1</b> = FRN, <b>#*2</b> = EchoLink. In EchoLink: <b>#</b> + numero nodo = chiama il nodo (es. <b>#9999</b> = test), <b>#0</b> = chiudi il collegamento. Il nominativo -L (o -R) va validato da EchoLink a parte: il nominativo semplice non &egrave; ammesso su un nodo collegato a una radio.</p></div>
  <div class="card"><h2>Rete</h2>
  <label class="ck" style="margin-bottom:12px"><input type="checkbox" name="elPxOn">Usa proxy (senza spunta = UDP diretto)</label><div class="grid">
  <label>Proxy EchoLink<input name="elPxHost" placeholder="elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es"></label>

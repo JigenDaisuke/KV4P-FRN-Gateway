@@ -42,7 +42,7 @@ ponte fra la stanza FRN e la frequenza radio.
 - **Cambio stanza con i toni DTMF**: dalla radio invii `#` più un codice (es. `#2`) e la
   stanza cambia; tabella codici → stanze configurabile, `#0` = stanza principale,
   ritorno automatico opzionale. I toni non vengono inoltrati in rete.
-- **EchoLink (versione di prova)**: il gateway può lavorare come nodo EchoLink `-L` invece
+- **EchoLink**: il gateway può lavorare come nodo EchoLink `-L` invece
   che su FRN; si passa da un sistema all'altro con i DTMF `#*1` (FRN) e `#*2` (EchoLink).
 - **Identificativo CW** automatico del nominativo a fine passaggio (al massimo ogni N minuti).
 - **Fino a 3 reti Wi-Fi** (casa, hotspot del cellulare, ufficio): si collega alla prima
@@ -156,11 +156,16 @@ riparte dalla stanza principale. Se imposti *Ritorno alla stanza principale dopo
 il gateway ci torna da solo dopo N minuti senza traffico. Il decodificatore DTMF è in
 software (il modulo SA818 non ne ha uno) ed è testato contro voce, toni e rumore.
 
-## EchoLink (versione di prova)
+## EchoLink
 
 Il gateway lavora su **un sistema alla volta**: FRN oppure EchoLink. Configuralo nella
-scheda **EchoLink**: nominativo del nodo (es. `IU8UUT-L`, deve essere validato da EchoLink),
-password, nome, località (max 27 caratteri) e, se serve, un proxy.
+scheda **EchoLink**: nominativo del nodo (es. `IU8UUT-L`), password, nome, località (max 27 caratteri)
+e la modalità di rete (UDP diretto o proxy).
+
+> **Nominativo -L.** Per EchoLink `IU8UUT` e `IU8UUT-L` sono due nodi distinti, da
+> validare separatamente (ognuno con la sua password). Se il `-L` non è validato il directory
+> accetta comunque la registrazione, ma gli altri nodi ignorano le chiamate in silenzio.
+> Il nominativo semplice non è ammesso su un nodo collegato a una radio.
 
 Comandi DTMF dalla radio (sempre `#` + codice, la fine del passaggio conferma):
 
@@ -219,7 +224,7 @@ backoff, server di backup, catena audio completa, ID in CW, toni di cortesia, de
 
 ## Stato del progetto
 
-Versione 0.5.0-test (EchoLink in prova; FRN come la 0.4.0): **login e collegamento verificati sul server AlterFRN di Voip-Italia**
+Versione 0.5.0 (FRN + EchoLink; EchoLink verificato con *ECHOTEST* e nodi reali in UDP diretto, 19/11/2026): **login e collegamento verificati sul server AlterFRN di Voip-Italia**
 (stanza Prove, 18/11/2026). In corso la taratura audio. Da controllare in ogni installazione:
 
 - Il clock reale dell'ADC I2S (viene misurato e corretto in automatico, ma controlla il valore).

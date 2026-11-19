@@ -405,7 +405,7 @@ void Client::sendSdes() {
   uint8_t p[300];
   size_t n = makeSdes(p, cfg_.callsign, cfg_.sysopName);
   bool ok = net_.sendCtrl(rip_, p, n);
-  if (!ok || dbgPackets_ > 0) log("SDES to %s: %u bytes %s", ipToString(rip_).c_str(), (unsigned)n, ok ? "sent" : "NOT SENT");
+  if (!ok) log("SDES to %s: %u bytes %s", ipToString(rip_).c_str(), (unsigned)n, "NOT SENT");
   lastSdesTx_ = now_;
 }
 
@@ -419,11 +419,6 @@ void Client::sendInfo() {
 // ------------------------------------------------------------------ input --
 void Client::handleCtrl(uint32_t ip, const uint8_t* d, size_t n) {
   if (!running_) return;
-  if (dbgPackets_ > 0) {
-    dbgPackets_--;
-    log("ctrl packet from %s: %u bytes, %02x %02x %s%s", ipToString(ip).c_str(), (unsigned)n, n > 0 ? d[0] : 0,
-        n > 1 ? d[1] : 0, isSdes(d, n) ? "SDES" : "", isBye(d, n) ? "BYE" : "");
-  }
   if (qso_ != QSO_IDLE && ip == rip_) {
     if (isBye(d, n)) {
       log("%s hung up", rcall_.c_str());
@@ -473,10 +468,6 @@ void Client::handleCtrl(uint32_t ip, const uint8_t* d, size_t n) {
 }
 
 void Client::handleAudio(uint32_t ip, const uint8_t* d, size_t n) {
-  if (dbgPackets_ > 0 && qso_ != QSO_CONNECTED) {
-    dbgPackets_--;
-    log("audio-port packet from %s: %u bytes (not connected yet)", ipToString(ip).c_str(), (unsigned)n);
-  }
   if (!running_ || qso_ != QSO_CONNECTED || ip != rip_ || n < 7) return;
   if (d[0] != 0xC0) {
     if (memcmp(d + 1, "NDATA", 5) == 0) {
@@ -672,7 +663,6 @@ void Client::startOutgoing(uint32_t ip, const std::string& call, uint32_t now) {
   rname_.clear();
   retries_ = 0;
   log("calling %s (%s) via %s", call.c_str(), ipToString(ip).c_str(), net_.name());
-  dbgPackets_ = 6;
   now_ = now;
   setQso(QSO_CONNECTING);
   sendSdes();
