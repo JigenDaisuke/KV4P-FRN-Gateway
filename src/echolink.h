@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "frn_client.h"  // frn::Transport, frn::Listener
 
@@ -39,7 +40,7 @@ struct Config {
   std::string location;               // directory description (max 27 chars)
   std::string info = "KV4P ESP32 FRN/EchoLink gateway - FRN ITALIA";
   std::string server = "servers.echolink.org";
-  std::string proxyHost;              // empty = direct UDP (ports 5198/5199 forwarded)
+  std::string proxyHost;              // empty = direct UDP; several proxies: "a.b.c, d.e.f" (tried in turn)
   uint16_t proxyPort = 8100;
   std::string proxyPassword = "PUBLIC";
   bool acceptIncoming = true;
@@ -73,7 +74,9 @@ class Net {
 class ProxyNet : public Net {
  public:
   ProxyNet(frn::Transport& tcp, std::function<uint32_t(const char*)> resolver) : tcp_(tcp), resolver_(resolver) {}
-  void configure(const std::string& host, uint16_t port, const std::string& callsign, const std::string& password);
+  // hosts: one or more proxies separated by commas/spaces; on failure the next one is tried
+  void configure(const std::string& hosts, uint16_t port, const std::string& callsign, const std::string& password);
+  const std::string& currentHost() const { return host_; }
   void open(uint32_t nowMs) override;
   void close() override;
   bool ready() override { return state_ == READY; }
@@ -93,6 +96,10 @@ class ProxyNet : public Net {
   void log(const char* m) {
     if (onLog) onLog(m);
   }
+  void nextHost(uint32_t nowMs, const char* why);
+  std::vector<std::string> hosts_;
+  size_t idx_ = 0;
+  uint32_t lastNow_ = 0;
   enum { CLOSED, WAIT_NONCE, READY } state_ = CLOSED;
   frn::Transport& tcp_;
   std::function<uint32_t(const char*)> resolver_;

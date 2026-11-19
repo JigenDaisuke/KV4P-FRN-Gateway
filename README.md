@@ -179,6 +179,9 @@ il gateway è libero (opzione disattivabile).
 inoltrale dal router all'IP del gateway (le chiamate in uscita spesso funzionano anche
 senza). Con un **proxy EchoLink** (porta TCP 8100, password `PUBLIC` per i proxy pubblici)
 tutto passa in una sola connessione in uscita: è la scelta giusta con l'hotspot del cellulare.
+I proxy pubblici sono spesso occupati: nel campo proxy puoi scriverne **più d'uno separati da
+virgola** (es. `elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es`) e il gateway passa da
+solo al successivo. Elenco aggiornato: <https://www.echolink.org/proxylist.jsp>.
 
 Il protocollo segue `echolib` di SvxLink: registrazione sul directory ogni 5 minuti
 (ONLINE/BUSY), ricerca del nodo nella lista delle stazioni, controllo RTCP (SDES ogni 10 s,
@@ -210,7 +213,7 @@ Le parti portabili (protocollo FRN, codec, DSP, CW) hanno test che girano sul PC
 Il server FRN viene simulato: login (anche frammentato byte per byte), liste, keepalive,
 voce in arrivo, turno concesso e negato, concessione tardiva, login rifiutato, timeout,
 backoff, server di backup, catena audio completa, ID in CW, toni di cortesia, decodifica DTMF e client EchoLink (directory, collegamenti, audio, proxy con MD5). Risultato attuale:
-**238 controlli, 0 errori**.
+**243 controlli, 0 errori**.
 
 ## Stato del progetto
 

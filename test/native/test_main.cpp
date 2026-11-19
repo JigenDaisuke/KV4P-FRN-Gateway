@@ -1019,6 +1019,23 @@ static void testEchoLinkProxy() {
   tr.serverSend(sys, 10);
   px.poll(6);
   CHECK(!px.ready());
+
+  // list of proxies: a busy one (closes at once) makes the gateway try the next
+  MockTransport t2;
+  el::ProxyNet p2(t2, nullptr);
+  p2.configure("busy.example.org, free.example.org", 8100, "IU8UUT-L", "PUBLIC");
+  p2.open(100000);
+  CHECK(t2.lastHost == "busy.example.org");
+  t2.up = false;  // proxy hangs up before the nonce
+  p2.poll(100001);
+  CHECK(p2.currentHost() == "free.example.org");
+  p2.open(101000);
+  CHECK(t2.connects == 1);  // waits ~2 s
+  p2.open(102100);
+  CHECK(t2.connects == 2 && t2.lastHost == "free.example.org");
+  t2.serverSend("abcdefgh");
+  p2.poll(102200);
+  CHECK(p2.ready());
 }
 
 int main() {

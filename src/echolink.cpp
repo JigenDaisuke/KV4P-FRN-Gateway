@@ -34,9 +34,20 @@ std::string ipToString(uint32_t ip) {
 }
 
 // ---------------------------------------------------------------- proxy ----
-void ProxyNet::configure(const std::string& host, uint16_t port, const std::string& callsign,
+void ProxyNet::configure(const std::string& hosts, uint16_t port, const std::string& callsign,
                          const std::string& password) {
-  host_ = host;
+  hosts_.clear();
+  std::string cur;
+  for (char c : hosts + ",") {
+    if (c == ',' || c == ';' || c == ' ' || c == '\t') {
+      if (!cur.empty()) hosts_.push_back(cur);
+      cur.clear();
+    } else {
+      cur += c;
+    }
+  }
+  idx_ = 0;
+  host_ = hosts_.empty() ? std::string() : hosts_[0];
   port_ = port;
   call_ = callsign;
   pass_ = password;
@@ -44,8 +55,19 @@ void ProxyNet::configure(const std::string& host, uint16_t port, const std::stri
   for (auto& c : pass_) c = (char)toupper((unsigned char)c);  // like echolib
 }
 
+void ProxyNet::nextHost(uint32_t nowMs, const char* why) {
+  char m[128];
+  snprintf(m, sizeof(m), "proxy: %s %s", host_.c_str(), why);
+  log(m);
+  if (hosts_.size() > 1) {
+    idx_ = (idx_ + 1) % hosts_.size();
+    host_ = hosts_[idx_];
+    retryAt_ = nowMs + 2000;  // next proxy of the list almost at once
+  }
+}
+
 void ProxyNet::open(uint32_t nowMs) {
-  if (state_ != CLOSED || (int32_t)(nowMs - retryAt_) < 0) return;
+  if (state_ != CLOSED || host_.empty() || (int32_t)(nowMs - retryAt_) < 0) return;
   retryAt_ = nowMs + 10000;  // RECONNECT_INTERVAL
   len_ = 0;
   dirState_ = 0;
@@ -53,7 +75,7 @@ void ProxyNet::open(uint32_t nowMs) {
   snprintf(m, sizeof(m), "proxy: connecting to %s:%u", host_.c_str(), (unsigned)port_);
   log(m);
   if (tcp_.connect(host_.c_str(), port_)) state_ = WAIT_NONCE;
-  else log("proxy: connect failed");
+  else nextHost(nowMs, "not reachable");
 }
 
 void ProxyNet::close() {
@@ -89,11 +111,13 @@ void ProxyNet::dirClose() {
 }
 
 void ProxyNet::poll(uint32_t nowMs) {
-  (void)nowMs;
+  lastNow_ = nowMs;
   if (state_ == CLOSED) return;
   if (!tcp_.connected()) {
-    log("proxy: connection lost");
+    bool early = state_ == WAIT_NONCE;
     close();
+    if (early) nextHost(nowMs, "closed the connection at once (busy?)");
+    else log("proxy: connection lost");
     return;
   }
   for (int i = 0; i < 8 && len_ < sizeof(buf_); i++) {
@@ -171,9 +195,9 @@ void ProxyNet::handle(uint8_t type, uint32_t ip, const uint8_t* d, size_t n) {
       if (onCtrl) onCtrl(ip, d, n);
       break;
     case 7:  // SYSTEM
-      log(n == 1 && d[0] == 1 ? "proxy: BAD PASSWORD" : "proxy: access denied");
       close();
-      retryAt_ += 50000;  // don't hammer it
+      nextHost(lastNow_, n == 1 && d[0] == 1 ? "refused: BAD PASSWORD" : "refused: access denied");
+      if (hosts_.size() <= 1) retryAt_ = lastNow_ + 60000;  // don't hammer it
       break;
     default:
       log("proxy: unknown block type");
