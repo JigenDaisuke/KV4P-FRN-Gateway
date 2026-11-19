@@ -409,6 +409,22 @@ static void testLoginVariants() {
     CHECK(tr.lastHost == "bk.example.org" && tr.lastPort == 10025);
   }
   {
+    // AL=DUPL (session from before a reboot still alive): quick retry, not 5 min
+    MockTransport tr;
+    MockListener li;
+    frn::Client c(tr, li);
+    c.setConfig(testConfig());
+    c.start(0);
+    spin(c, 1);
+    tr.serverSend("2014003\r\n<MT></MT><SV>2014004</SV><AL>DUPL</AL><BN>185.65.206.81</BN><BP>10024</BP>\r\n");
+    spin(c, 2);
+    CHECK(c.state() == frn::State::LoginRejected);
+    spin(c, 14000);
+    CHECK(tr.connects == 1);
+    spin(c, 15100);
+    CHECK(tr.connects == 2);
+  }
+  {
     // field sanitising
     MockTransport tr;
     MockListener li;

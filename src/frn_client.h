@@ -99,6 +99,8 @@ class Client {
   static constexpr uint32_t RECONNECT_MIN_MS = 5000;
   static constexpr uint32_t RECONNECT_MAX_MS = 120000;
   static constexpr uint32_t REJECTED_RETRY_MS = 300000;  // wrong password / blocked
+  static constexpr uint32_t DUPLICATE_RETRY_MS = 15000;  // AL=DUPL: old session still open on the server
+  static constexpr uint32_t OTHER_REJECT_RETRY_MS = 60000;
   static constexpr uint32_t TX0_RETRY_MS = 2000;
   static constexpr size_t IN_BUF = 4096;
   static constexpr size_t MAX_CLIENTS = 100;

@@ -379,8 +379,14 @@ size_t Client::process(const uint8_t* p, size_t n, uint32_t nowMs) {
           std::string al = extractTag(line, "AL");
           if (al != "OK" && al != "OWNER" && al != "NETOWNER" && al != "ADMIN") {
             log("login REJECTED (AL=%s): '%s'", al.empty() ? "?" : al.c_str(), line.c_str());
+            // DUPL = our previous session (e.g. before a reboot) is still alive on
+            // the server: it expires in a few seconds, so retry soon.
+            uint32_t wait = (al == "WRONG" || al == "BLOCK") ? REJECTED_RETRY_MS
+                            : (al == "DUPL")                 ? DUPLICATE_RETRY_MS
+                                                             : OTHER_REJECT_RETRY_MS;
+            if (al == "DUPL") log("duplicate session on the server, retrying shortly");
             setState(State::LoginRejected);
-            dropAndRetry(nowMs, REJECTED_RETRY_MS);
+            dropAndRetry(nowMs, wait);
             return n;
           }
           log("login ok (%s)", al.c_str());

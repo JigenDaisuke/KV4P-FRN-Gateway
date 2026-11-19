@@ -151,11 +151,11 @@ Le parti portabili (protocollo FRN, codec, DSP, CW) hanno test che girano sul PC
 Il server FRN viene simulato: login (anche frammentato byte per byte), liste, keepalive,
 voce in arrivo, turno concesso e negato, concessione tardiva, login rifiutato, timeout,
 backoff, server di backup, catena audio completa, ID in CW e toni di cortesia. Risultato attuale:
-**152 controlli, 0 errori**.
+**155 controlli, 0 errori**.
 
 ## Stato del progetto
 
-Versione 0.3.0: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
+Versione 0.3.1: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
 (stanza Prove, 18/11/2026). In corso la taratura audio. Da controllare in ogni installazione:
 
 - Il clock reale dell'ADC I2S (viene misurato e corretto in automatico, ma controlla il valore).

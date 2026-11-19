@@ -162,6 +162,21 @@ void Gateway::netTask() {
   for (;;) {
     uint32_t now = millis();
     heartbeat_ = now;
+    if (shutdownReq_) {
+      if (!shutdownDone_) {
+        wantTx_ = false;
+        playEnable_ = false;
+        if (frnStarted_) {
+          frn_->endTx(now);
+          frn_->stop();  // closes the TCP session (FIN) so the server drops it at once
+          frnStarted_ = false;
+        }
+        LOGF("shutdown: FRN session closed");
+        shutdownDone_ = true;
+      }
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
     if (netUp_ && !frnStarted_) {
       frn_->start(now);
       frnStarted_ = true;

@@ -353,7 +353,13 @@ void begin(Settings& s, Gateway& gw) {
 
 void loop() {
   server.handleClient();
-  if (rebootAt && (int32_t)(millis() - rebootAt) >= 0) ESP.restart();
+  if (rebootAt && (int32_t)(millis() - rebootAt) >= 0) {
+    G->requestShutdown();
+    uint32_t t0 = millis();
+    while (!G->shutdownDone() && millis() - t0 < 2000) delay(10);
+    delay(300);  // let the TCP close reach the server
+    ESP.restart();
+  }
 }
 
 }  // namespace webui

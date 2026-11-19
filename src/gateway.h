@@ -39,6 +39,10 @@ class Gateway : public frn::Listener {
   // Plays a courtesy tone on air (web "Prova" buttons): 1 = end of FRN over,
   // 2 = gateway taken (local over sent), 3 = gateway busy. Ignored if not idle.
   void requestTestTone(int kind) { testTone_ = kind; }
+  // Before a reboot: release the PTT and close the FRN session cleanly, so the
+  // server does not see a duplicate login (AL=DUPL) when we come back.
+  void requestShutdown() { shutdownReq_ = true; }
+  bool shutdownDone() const { return shutdownDone_; }
 
   // frn::Listener
   void onFrnState(frn::State s) override;
@@ -82,6 +86,8 @@ class Gateway : public frn::Listener {
   uint8_t pendingTone_ = TONE_NONE;  // tone to play when the current local TX drains
   uint32_t rfPacketsSent_ = 0;       // packets that really went out in this local over
   volatile int testTone_ = 0;
+  volatile bool shutdownReq_ = false;
+  volatile bool shutdownDone_ = false;
 
   StreamBufferHandle_t capture_ = nullptr;  // radio -> net
   StreamBufferHandle_t play_ = nullptr;     // net -> radio
