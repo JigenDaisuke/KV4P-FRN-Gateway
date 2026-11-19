@@ -88,7 +88,7 @@ class ProxyNet : public Net {
   void dirClose() override;
   bool dirConnected() override { return dirState_ == 2; }
   uint32_t resolve(const char* host) override { return resolver_ ? resolver_(host) : 0; }
-  const char* name() const override { return "proxy"; }
+  const char* name() const override { return name_.c_str(); }
 
  private:
   bool block(uint8_t type, uint32_t ip, const uint8_t* d, size_t n);
@@ -104,6 +104,7 @@ class ProxyNet : public Net {
   frn::Transport& tcp_;
   std::function<uint32_t(const char*)> resolver_;
   std::string host_, call_, pass_;
+  std::string name_ = "proxy";
   uint16_t port_ = 8100;
   int dirState_ = 0;  // 0 closed, 1 opening, 2 open
   uint32_t retryAt_ = 0;
@@ -180,6 +181,7 @@ class Client {
   bool registered_ = false;
   bool regBusy_ = false;          // last status sent
   uint32_t nextRegister_ = 0;
+  bool netWasReady_ = false;     // re-register after a proxy (re)connection
   DirJob job_ = DJ_NONE;
   DirStep step_ = DS_CONNECTING;
   uint32_t jobSince_ = 0;

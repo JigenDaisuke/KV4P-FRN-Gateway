@@ -48,6 +48,7 @@ void ProxyNet::configure(const std::string& hosts, uint16_t port, const std::str
   }
   idx_ = 0;
   host_ = hosts_.empty() ? std::string() : hosts_[0];
+  name_ = "proxy " + host_;
   port_ = port;
   call_ = callsign;
   pass_ = password;
@@ -62,6 +63,7 @@ void ProxyNet::nextHost(uint32_t nowMs, const char* why) {
   if (hosts_.size() > 1) {
     idx_ = (idx_ + 1) % hosts_.size();
     host_ = hosts_[idx_];
+    name_ = "proxy " + host_;
     retryAt_ = nowMs + 2000;  // next proxy of the list almost at once
   }
 }
@@ -699,7 +701,16 @@ void Client::loop(uint32_t nowMs) {
   if (!running_) return;
   net_.open(nowMs);  // no-op when already open (proxy reconnects by itself)
   net_.poll(nowMs);
-  if (!net_.ready()) return;
+  if (!net_.ready()) {
+    netWasReady_ = false;
+    return;
+  }
+  if (!netWasReady_) {
+    // New (or different) proxy: the directory must see the address we now use,
+    // otherwise the other stations refuse our calls.
+    netWasReady_ = true;
+    nextRegister_ = nowMs;
+  }
 
   // Directory: lookups first, then the periodic registration.
   if (job_ == DJ_NONE) {
