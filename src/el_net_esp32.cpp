@@ -51,12 +51,19 @@ void DirectNet::poll(uint32_t nowMs) {
   drain(ctrl_, true);
   drain(audio_, false);
   if (dirOpen_) {
-    for (int i = 0; i < 8; i++) {
+    bool more = false;
+    for (int i = 0; i < 16 && dirOpen_; i++) {
       int r = dir_.read(buf_, sizeof(buf_));
-      if (r <= 0) break;
+      if (r <= 0) {
+        more = false;
+        break;
+      }
+      more = true;
       if (onDir) onDir(buf_, (size_t)r);
     }
-    if (dirOpen_ && !dir_.connected()) {  // the server closes after its answer
+    // The server closes right after its answer: report the close only once
+    // everything it sent has been read (connected() turns false earlier).
+    if (dirOpen_ && !more && !dir_.connected()) {
       dirOpen_ = false;
       if (onDirClosed) onDirClosed();
     }
@@ -65,6 +72,10 @@ void DirectNet::poll(uint32_t nowMs) {
 
 bool DirectNet::dirOpen(uint32_t ip) {
   dirOpen_ = dir_.connect(el::ipToString(ip).c_str(), 5200);
+  if (!dirOpen_ && onLog) {
+    std::string m = "cannot connect to the directory " + el::ipToString(ip) + ":5200";
+    onLog(m.c_str());
+  }
   return dirOpen_;
 }
 

@@ -509,6 +509,9 @@ void Client::startDirJob(DirJob j, uint32_t now) {
   dirLine_.clear();
   dirReply_.clear();
   listState_ = 0;
+  scanned_ = 0;
+  dirBytes_ = 0;
+  log("directory %s %s (%s)", j == DJ_LOOKUP ? "lookup on" : "login to", ipToString(dirIp_).c_str(), net_.name());
   if (!net_.dirOpen(dirIp_)) dirDone(false);
 }
 
@@ -523,13 +526,22 @@ void Client::dirDone(bool ok) {
       registered_ = false;
     }
   } else if (j == DJ_LOOKUP && lookupId_) {
-    log("node %u not found in the directory", (unsigned)lookupId_);
+    if (step_ == DS_CONNECTING)
+      log("node %u: directory connection failed", (unsigned)lookupId_);
+    else if (listState_ < 2)
+      log("node %u: no station list received (%u bytes: '%s')", (unsigned)lookupId_, (unsigned)dirBytes_,
+          dirLine_.substr(0, 40).c_str());
+    else if (listState_ == 6 || listCount_ <= 0)
+      log("node %u not found in the directory (%u stations checked)", (unsigned)lookupId_, (unsigned)scanned_);
+    else
+      log("node %u: station list interrupted after %u stations", (unsigned)lookupId_, (unsigned)scanned_);
     lookupId_ = 0;
     if (onConnectResult) onConnectResult(false, "");
   }
 }
 
 void Client::handleDir(const uint8_t* d, size_t n) {
+  dirBytes_ += n;
   if (job_ == DJ_REGISTER) {
     dirReply_.append((const char*)d, n);
     if (dirReply_.size() >= 2) {
@@ -586,6 +598,7 @@ void Client::handleDirLine(const std::string& line) {
       listState_ = 5;
       break;
     case 5: {
+      scanned_++;
       if (entId_ == lookupId_ && entCall_ != " " && entCall_ != ".") {
         int a, b, c2, d2;
         if (sscanf(line.c_str(), "%d.%d.%d.%d", &a, &b, &c2, &d2) == 4) {
@@ -676,7 +689,8 @@ void Client::loop(uint32_t nowMs) {
       step_ = DS_WAIT_REPLY;
     }
     if (job_ != DJ_NONE && elapsed(nowMs, jobSince_, DIR_TIMEOUT_MS)) {
-      log("directory timeout");
+      log("directory timeout (%s, %u bytes)", step_ == DS_CONNECTING ? "no connection" : "waiting for data",
+          (unsigned)dirBytes_);
       dirDone(false);
     }
   }

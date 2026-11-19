@@ -185,6 +185,8 @@ class Client {
   std::string entCall_;
   uint32_t entId_ = 0;
   uint32_t lookupId_ = 0;
+  uint32_t scanned_ = 0;          // stations read in the current lookup
+  size_t dirBytes_ = 0;           // bytes received in the current directory job
 
   // QSO
   Qso qso_ = QSO_IDLE;
