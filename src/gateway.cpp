@@ -12,7 +12,7 @@
 namespace {
 constexpr size_t CAPTURE_BYTES = 8000 * 2 * 2;  // 2 s @ 8 kHz int16
 constexpr size_t PLAY_BYTES = 8000 * 2 * 3;     // 3 s
-constexpr uint32_t AUDIO_WATCHDOG_MS = 3000;    // net task silent -> force PTT off
+constexpr uint32_t AUDIO_WATCHDOG_MS = 7000;    // net task silent -> force PTT off (> TCP connect timeout)
 int16_t txPcm[frn::PACKET_SAMPLES];             // net task only
 volatile int32_t skipSamples = 0;               // net -> audio: drop backlog
 
@@ -73,7 +73,7 @@ void Gateway::begin(const Settings& s, RadioSA818& radio) {
 
   // EchoLink: direct UDP or through a proxy
   if (s.elProxyHost.length()) {
-    elTcp_ = new WiFiTransport();
+    elTcp_ = new WiFiTransport(3000);
     el::ProxyNet* px = new el::ProxyNet(*elTcp_, elResolve);
     px->configure(s.elProxyHost.c_str(), s.elProxyPort, s.elCallsign.c_str(), s.elProxyPass.c_str());
     elNet_ = px;
@@ -191,7 +191,7 @@ void Gateway::netTask() {
       vTaskDelay(pdMS_TO_TICKS(20));
       continue;
     }
-    if (netUp_ && !frnStarted_ && sysConfigured(sys_)) {
+    if (netUp_ && !frnStarted_ && sysConfigured(sys_) && gs_ != GwState::NetToRf) {  // not while on air
       netStart(now);
     } else if (!netUp_ && frnStarted_) {
       if (gs_ == GwState::RfToNet) endRfToNet(now, "Wi-Fi down");
@@ -324,6 +324,11 @@ void Gateway::tick(uint32_t now) {
       break;
 
     case GwState::NetToRf: {
+      if (!wantTx_) {  // the audio task's safety released the PTT: don't stay stuck
+        netVoiceIgnored_ = netVoiceActive_;
+        endNetToRf(now, "PTT released by safety");
+        break;
+      }
       size_t buffered = xStreamBufferBytesAvailable(play_) / sizeof(int16_t);
       const size_t jitter = (size_t)cfg_.jitterMs * 8;
       if (phase_ < TxPhase::CwId && now - gsSince_ > (uint32_t)cfg_.totSec * 1000) {

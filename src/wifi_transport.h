@@ -7,9 +7,10 @@
 
 class WiFiTransport : public frn::Transport {
  public:
+  explicit WiFiTransport(int32_t timeoutMs = 5000) : timeout_(timeoutMs) {}
   bool connect(const char* host, uint16_t port) override {
     c_.stop();
-    if (!c_.connect(host, port, 5000)) return false;
+    if (!c_.connect(host, port, timeout_)) return false;
     c_.setNoDelay(true);
     return true;
   }
@@ -24,4 +25,5 @@ class WiFiTransport : public frn::Transport {
 
  private:
   WiFiClient c_;
+  int32_t timeout_;
 };

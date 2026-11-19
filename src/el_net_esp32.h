@@ -28,7 +28,7 @@ class DirectNet : public el::Net {
   bool send(WiFiUDP& u, uint32_t ip, uint16_t port, const uint8_t* d, size_t n);
   void drain(WiFiUDP& u, bool ctrl);
   WiFiUDP audio_, ctrl_;
-  WiFiTransport dir_;
+  WiFiTransport dir_{3000};
   bool open_ = false, dirOpen_ = false;
   uint32_t retryAt_ = 0;
   uint8_t buf_[1500];
