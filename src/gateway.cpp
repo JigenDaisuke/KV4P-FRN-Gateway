@@ -325,11 +325,18 @@ void Gateway::tick(uint32_t now) {
           break;
         case TxPhase::Tone:
           pumpGenerator(false);
-          if (tone_.done() && buffered == 0) afterTone(now);
+          // Re-read the buffer AFTER generating: the whole tone may have just
+          // been queued and still has to be played (bug in 0.3.0/0.3.1).
+          if (tone_.done() && xStreamBufferBytesAvailable(play_) == 0) {
+            if (now - phaseSince_ < 40) break;  // let the DAC drain its last DMA buffers
+            afterTone(now);
+          } else {
+            phaseSince_ = now;
+          }
           break;
         case TxPhase::CwId:
           pumpGenerator(true);
-          if (cw_.done() && buffered == 0) {
+          if (cw_.done() && xStreamBufferBytesAvailable(play_) == 0) {
             lastCwId_ = now;
             cwEverSent_ = true;
             LOGF("CW ID sent (%s)", cfg_.frnCallsign.c_str());
