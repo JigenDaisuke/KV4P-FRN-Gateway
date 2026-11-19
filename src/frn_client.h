@@ -111,7 +111,8 @@ class Client {
   const Config& config() const { return cfg_; }
 
   // Start (or restart) connecting. Call from the network task.
-  void start(uint32_t nowMs);
+  // delayMs: wait before connecting (e.g. let the server drop our old session)
+  void start(uint32_t nowMs, uint32_t delayMs = 0);
   void stop();
 
   // Drive the state machine. Call often (every few ms).

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 constexpr int WIFI_SLOTS = 3;
+constexpr int DTMF_SLOTS = 10;
 
 struct Settings {
   // Wi-Fi: up to 3 networks, tried in this order (first one visible wins)
@@ -68,6 +69,13 @@ struct Settings {
   uint8_t toneBusy = 0;          // after my over when the gateway could NOT take it
   uint16_t toneBusyHz = 500;
   uint16_t toneLevel = 6000;     // amplitude (int16)
+
+  // DTMF room change: send "#<code>" from the radio, the end of the over
+  // confirms. "#0" always returns to the main room (frnNet).
+  bool dtmfEnabled = true;
+  String dtmfCode[DTMF_SLOTS] = {"1", "2", "3", "999"};
+  String dtmfRoom[DTMF_SLOTS] = {"Nazionale", "Prove", "Ham Radio Network", "Test"};
+  uint8_t dtmfReturnMin = 0;     // back to the main room after N min without traffic (0 = never)
 
   // CW identification on the radio side
   bool cwIdEnabled = true;

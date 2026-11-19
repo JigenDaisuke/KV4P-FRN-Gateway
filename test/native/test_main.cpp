@@ -14,6 +14,8 @@
 #include "frn_codec.h"
 #include "resampler.h"
 #include "tones.h"
+#include "dtmf.h"
+#include <algorithm>
 
 static int failures = 0, checks = 0;
 #define CHECK(cond)                                                    \
@@ -662,6 +664,70 @@ static void testTones() {
   }
 }
 
+static std::vector<int16_t> dtmfGen(const char* seq, int onMs, int offMs, float amp, float noise, int seed) {
+  static const float R[4] = {697, 770, 852, 941}, C[4] = {1209, 1336, 1477, 1633};
+  static const char* K = "123A456B789C*0#D";
+  srand(seed);
+  std::vector<int16_t> o;
+  for (const char* p = seq; *p; p++) {
+    int idx = (int)(strchr(K, *p) - K);
+    for (int i = 0; i < onMs * 8; i++) {
+      float t = o.size() / 8000.0f;
+      float v = amp * (sinf(2 * M_PI * R[idx / 4] * t) + 0.8f * sinf(2 * M_PI * C[idx % 4] * t)) +
+                noise * ((rand() / (float)RAND_MAX) * 2 - 1);
+      o.push_back((int16_t)v);
+    }
+    for (int i = 0; i < offMs * 8; i++) o.push_back((int16_t)(noise * ((rand() / (float)RAND_MAX) * 2 - 1)));
+  }
+  return o;
+}
+
+static std::string dtmfRun(const std::vector<int16_t>& v, int chunk) {
+  DtmfDecoder d;
+  std::string r;
+  for (size_t i = 0; i < v.size(); i += chunk) {
+    int n = (int)std::min((size_t)chunk, v.size() - i);
+    char c = d.process(&v[i], n);
+    if (c) r += c;
+  }
+  return r;
+}
+
+static void testDtmf() {
+  printf("[DTMF decoder]\n");
+  struct T { const char* s; int on, off; float amp, noise; } ts[] = {
+      {"#999", 100, 100, 6000, 300}, {"#2", 70, 60, 3000, 800}, {"#1", 50, 50, 8000, 200},
+      {"#0123456789", 80, 60, 5000, 500}, {"*#ABCD", 80, 80, 2000, 400}, {"#999", 60, 50, 6000, 300}};
+  for (auto& t : ts)
+    for (int ch : {160, 64, 205}) {
+      std::string r = dtmfRun(dtmfGen(t.s, t.on, t.off, t.amp, t.noise, 1), ch);
+      CHECK(r == t.s);
+      if (r != t.s) printf("  '%s' -> '%s'\n", t.s, r.c_str());
+    }
+  // no false digits on voice-like audio, single tones and noise (36 s)
+  std::vector<int16_t> v;
+  srand(3);
+  for (int i = 0; i < 8000 * 20; i++) {
+    double t = i / 8000.0, f0 = 120 + 40 * sin(2 * M_PI * 0.7 * t) + 30 * sin(2 * M_PI * 3.1 * t), x = 0;
+    for (int h = 1; h < 25; h++) x += (1.0 / h) * sin(2 * M_PI * f0 * h * t + h);
+    v.push_back((int16_t)(4000 * (0.5 + 0.5 * sin(2 * M_PI * 4 * t)) * x + 300 * ((rand() / (double)RAND_MAX) * 2 - 1)));
+  }
+  for (int i = 0; i < 8000 * 3; i++) v.push_back((int16_t)(8000 * sin(2 * M_PI * 1000 * i / 8000.0)));
+  for (int i = 0; i < 8000 * 3; i++) v.push_back((int16_t)(8000 * sin(2 * M_PI * 953 * i / 8000.0)));
+  for (int i = 0; i < 8000 * 10; i++) v.push_back((int16_t)(9000 * ((rand() / (double)RAND_MAX) * 2 - 1)));
+  // our own courtesy tones must not look like DTMF either
+  ToneSequence ts2;
+  int16_t b[160];
+  size_t n;
+  for (int p = 1; p < tones::PRESETS; p++) {
+    ts2.start(p, 1000, 6000);
+    while ((n = ts2.fill(b, 160)) > 0) v.insert(v.end(), b, b + n);
+  }
+  std::string fp = dtmfRun(v, 160);
+  printf("  false digits on voice/tones/noise: '%s'\n", fp.c_str());
+  CHECK(fp.empty());
+}
+
 int main() {
   testLogin();
   testListsAndKeepalive();
@@ -675,6 +741,7 @@ int main() {
   testChain();
   testCw();
   testTones();
+  testDtmf();
   printf("\n%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

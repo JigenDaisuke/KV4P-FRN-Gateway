@@ -109,7 +109,7 @@ std::string Client::clean(const std::string& v) {
   return o.substr(a, b - a + 1);
 }
 
-void Client::start(uint32_t nowMs) {
+void Client::start(uint32_t nowMs, uint32_t delayMs) {
   now_ = nowMs;
   running_ = true;
   reconnectDelay_ = RECONNECT_MIN_MS;
@@ -117,7 +117,13 @@ void Client::start(uint32_t nowMs) {
   tr_.close();
   setTx(Tx::None);
   setState(State::Disconnected);
-  reconnectAt_ = nowMs;  // connect on next loop
+  if (receivingVoice_) {
+    receivingVoice_ = false;
+    li_.onFrnVoiceEnd();
+  }
+  wantTx_ = false;
+  inLen_ = 0;
+  reconnectAt_ = nowMs + delayMs;  // connect on a following loop
 }
 
 void Client::stop() {

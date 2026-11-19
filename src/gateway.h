@@ -10,6 +10,7 @@
 
 #include "audio_io.h"
 #include "cw.h"
+#include "dtmf.h"
 #include "frn_client.h"
 #include "radio_sa818.h"
 #include "settings.h"
@@ -20,6 +21,7 @@ struct GatewayStatus {
   char frn[24];
   char talker[64];
   char lastLocal[24];
+  char room[48];
   bool ptt = false, carrier = false, wifi = false, radioOk = false;
   int rssi = 0;
   int rxLevel = 0;
@@ -56,7 +58,9 @@ class Gateway : public frn::Listener {
  private:
   enum class GwState : uint8_t { Idle, RfToNet, NetToRf, Lockout };
   enum class TxPhase : uint8_t { KeyUp, Playing, Draining, Tone, CwId, Tail };
-  enum ToneKind : uint8_t { TONE_NONE = 0, TONE_QSO_END = 1, TONE_LOCAL = 2, TONE_BUSY = 3 };
+  enum ToneKind : uint8_t {
+    TONE_NONE = 0, TONE_QSO_END = 1, TONE_LOCAL = 2, TONE_BUSY = 3, TONE_CMD_OK = 4, TONE_CMD_ERR = 5
+  };
 
   static void audioTaskEntry(void* arg);
   static void netTaskEntry(void* arg);
@@ -73,6 +77,13 @@ class Gateway : public frn::Listener {
   bool startTone(uint8_t kind);
   void afterTone(uint32_t now);
   void pumpGenerator(bool cw);
+  bool presetFor(uint8_t kind, uint8_t& preset, uint16_t& hz) const;
+  // radio -> FRN audio path with DTMF detection
+  void handleChunk(const int16_t* c, size_t n, uint32_t now);
+  void drainPre(uint32_t now);
+  void onDtmf(char d, uint32_t now);
+  void executeCommand(uint32_t now);
+  void switchRoom(const String& room, uint32_t now, const char* why);
   void updateLed(uint32_t now);
   static const char* gwName(GwState s);
 
@@ -86,6 +97,13 @@ class Gateway : public frn::Listener {
   uint8_t pendingTone_ = TONE_NONE;  // tone to play when the current local TX drains
   uint32_t rfPacketsSent_ = 0;       // packets that really went out in this local over
   volatile int testTone_ = 0;
+  DtmfDecoder dtmf_;
+  bool cmdMode_ = false;             // "#" received in this over: audio no longer goes to FRN
+  char cmdBuf_[8] = "";
+  char pendingCw_[8] = "";           // CW sent after the confirmation tone (the code)
+  bool cwIsId_ = false;
+  String currentRoom_;
+  uint32_t lastTraffic_ = 0;
   volatile bool shutdownReq_ = false;
   volatile bool shutdownDone_ = false;
 

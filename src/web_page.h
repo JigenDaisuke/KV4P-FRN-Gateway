@@ -36,12 +36,12 @@ label.ck{flex-direction:row;align-items:center;gap:8px;color:var(--tx)}label.ck 
 pre{background:#060b09;color:#9ff0c3;border-radius:10px;padding:10px;max-height:320px;overflow:auto;font-size:12px;margin:0;white-space:pre-wrap}
 .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--bd);padding:10px 16px;display:flex;gap:10px;justify-content:flex-end;align-items:center;z-index:5}
 .bar span{flex:1;color:var(--mu);font-size:13px}.tab{display:none}.tab.on{display:block}
-.tg{display:flex;gap:8px;align-items:end}.tg label{flex:1}
+.tg{display:flex;gap:8px;align-items:end}.tg label{flex:1;min-width:0}input,select{min-width:0;width:100%}label.ck input{width:18px}
 a{color:var(--ac2)}
 </style></head><body data-t="auto">
 <header><img class="logo" src="/logo.png" alt="FRN ITALIA"><h1>FRN ITALIA &mdash; Gateway KV4P<small id="hv">...</small></h1>
 <button id="thm" title="Cambia tema">Tema</button></header>
-<nav id="nav"><a data-p="st" class="on">Stato</a><a data-p="frn">Server FRN</a><a data-p="rad">Radio</a><a data-p="gw">Gateway</a><a data-p="ton">Toni</a><a data-p="wifi">Wi-Fi</a><a data-p="sys">Sistema</a></nav>
+<nav id="nav"><a data-p="st" class="on">Stato</a><a data-p="frn">Server FRN</a><a data-p="rad">Radio</a><a data-p="gw">Gateway</a><a data-p="ton">Toni</a><a data-p="dtmf">DTMF</a><a data-p="wifi">Wi-Fi</a><a data-p="sys">Sistema</a></nav>
 <main><form id="f">
 <section class="tab on" id="st">
  <div class="chips"><span class="chip"><i class="dot" id="cW"></i><span id="tW">Wi-Fi</span></span><span class="chip"><i class="dot" id="cF"></i><span id="tF">FRN</span></span><span class="chip"><i class="dot" id="cR"></i>Radio</span><span class="chip"><i class="dot" id="cT"></i>PTT</span><span class="chip"><i class="dot" id="cS"></i>Segnale RX</span></div>
@@ -91,6 +91,11 @@ a{color:var(--ac2)}
  <div class="card"><h2>Identificativo CW</h2><div class="grid">
  <label class="ck"><input type="checkbox" name="cwId">Invia il nominativo in CW</label><label>Al massimo ogni (min)<input name="cwIdMin" type="number"></label>
  <label>Velocit&agrave; (WPM)<input name="cwWpm" type="number"></label><label>Nota (Hz)<input name="cwTone" type="number"></label><label>Livello<input name="cwLevel" type="number"></label></div></div></section>
+<section class="tab" id="dtmf"><div class="card"><h2>Cambio stanza con i toni DTMF</h2>
+ <div class="grid"><label class="ck"><input type="checkbox" name="dtmfOn">Comandi DTMF attivi</label>
+ <label>Ritorno alla stanza principale dopo (min, 0 = mai)<input name="dtmfRet" type="number" min="0" max="240"></label></div>
+ <p class="hint">Dalla radio invia <b>#</b> seguito dal codice (es. <b>#2</b>) e rilascia il PTT: il gateway conferma con tre toni e il codice in CW, poi entra nella stanza. Codice sconosciuto = tono basso discendente. <b>#0</b> riporta sempre alla stanza principale (scheda Server FRN). I toni non vengono inoltrati in rete.</p>
+ <div id="dt" class="grid" style="margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))"></div></div></section>
 <section class="tab" id="wifi"><div class="card"><h2>Reti Wi-Fi (in ordine di priorit&agrave;)</h2>
  <div class="grid"><label>Rete 1 - SSID<input name="wifiSsid0"></label><label>Password<input name="wifiPass0" type="password" data-s="wifiPass0_set"></label></div><br>
  <div class="grid"><label>Rete 2 - SSID<input name="wifiSsid1"></label><label>Password<input name="wifiPass1" type="password" data-s="wifiPass1_set"></label></div><br>
@@ -107,6 +112,7 @@ const CT=[0,67,71.9,74.4,77,79.7,82.5,85.4,88.5,91.5,94.8,97.4,100,103.5,107.2,1
 const TP=['Nessuno','Beep corto','Beep doppio','Bip-bop (sale)','Bop-bip (scende)','Tre toni','Trillo','K in CW','R in CW (roger)'];
 $$('.ct').forEach(s=>CT.forEach((v,i)=>s.add(new Option(i?v.toFixed(1)+' Hz':'nessuno',i))));
 $$('.tp').forEach(s=>TP.forEach((v,i)=>s.add(new Option(v,i))));
+for(let i=0;i<10;i++)$('#dt').insertAdjacentHTML('beforeend','<div class="tg"><label style="flex:0 0 90px">Codice<input name="dCode'+i+'" inputmode="numeric" pattern="[0-9]*" placeholder="#"></label><label>Stanza<input name="dRoom'+i+'"></label></div>');
 const TN={auto:'Tema: auto',dark:'Tema: scuro',light:'Tema: chiaro'};let th='auto';try{th=localStorage.getItem('th')||'auto'}catch(e){}
 function thSet(){document.body.dataset.t=th;$('#thm').textContent=TN[th]}thSet();
 $('#thm').onclick=()=>{th={auto:'dark',dark:'light',light:'auto'}[th];thSet();try{localStorage.setItem('th',th)}catch(e){}};

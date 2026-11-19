@@ -39,6 +39,9 @@ ponte fra la stanza FRN e la frequenza radio.
 - **Toni di cortesia** ("coda" come un ponte radio), scegliendo fra 8 suoni:
   a fine di ogni QSO ricevuto da FRN, quando la tua trasmissione è davvero
   uscita su FRN (gateway impegnato) e, se vuoi, quando il gateway non ha preso la parola.
+- **Cambio stanza con i toni DTMF**: dalla radio invii `#` più un codice (es. `#2`) e la
+  stanza cambia; tabella codici → stanze configurabile, `#0` = stanza principale,
+  ritorno automatico opzionale. I toni non vengono inoltrati in rete.
 - **Identificativo CW** automatico del nominativo a fine passaggio (al massimo ogni N minuti).
 - **Fino a 3 reti Wi-Fi** (casa, hotspot del cellulare, ufficio): si collega alla prima
   della lista che trova attiva e, se la rete cade, ricerca da sola.
@@ -125,6 +128,32 @@ sovrascrivere.
 5. **clock ADC (Hz)** nello stato: dopo circa 10 s deve stabilizzarsi vicino a 48000. Il
    firmware misura il clock reale e corregge da solo la frequenza di campionamento.
 
+## Cambio stanza con i DTMF
+
+Nella scheda **DTMF** della pagina web associ un codice a ogni stanza (fino a 10), per esempio:
+
+| Codice | Stanza |
+|---|---|
+| `#1` | Nazionale |
+| `#2` | Prove |
+| `#3` | Ham Radio Network |
+| `#999` | Test |
+
+Dalla radio premi il PTT, invia `#` e il codice con la tastiera DTMF, poi rilascia il PTT.
+La fine del passaggio conferma il comando:
+
+- **codice valido**: tre toni che salgono e il codice in CW, poi il gateway entra nella
+  nuova stanza (servono pochi secondi per il nuovo login);
+- **codice sconosciuto**: un tono basso che scende, nessun cambio;
+- **`#0`** riporta sempre alla stanza principale, quella della scheda Server FRN;
+- `*` durante il comando cancella le cifre inserite.
+
+Appena il gateway riconosce il `#`, smette di inoltrare l'audio su FRN e restituisce la
+parola: gli altri utenti non sentono i toni. Il cambio non viene salvato: al riavvio si
+riparte dalla stanza principale. Se imposti *Ritorno alla stanza principale dopo N minuti*,
+il gateway ci torna da solo dopo N minuti senza traffico. Il decodificatore DTMF è in
+software (il modulo SA818 non ne ha uno) ed è testato contro voce, toni e rumore.
+
 ## Come funziona
 
 - **task audio** (core 1): gestisce I2S0 in modalità ADC integrato (ricezione) oppure DAC
@@ -150,12 +179,12 @@ Le parti portabili (protocollo FRN, codec, DSP, CW) hanno test che girano sul PC
 
 Il server FRN viene simulato: login (anche frammentato byte per byte), liste, keepalive,
 voce in arrivo, turno concesso e negato, concessione tardiva, login rifiutato, timeout,
-backoff, server di backup, catena audio completa, ID in CW e toni di cortesia. Risultato attuale:
-**155 controlli, 0 errori**.
+backoff, server di backup, catena audio completa, ID in CW, toni di cortesia e decodifica DTMF. Risultato attuale:
+**174 controlli, 0 errori**.
 
 ## Stato del progetto
 
-Versione 0.3.2: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
+Versione 0.4.0: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
 (stanza Prove, 18/11/2026). In corso la taratura audio. Da controllare in ogni installazione:
 
 - Il clock reale dell'ADC I2S (viene misurato e corretto in automatico, ma controlla il valore).

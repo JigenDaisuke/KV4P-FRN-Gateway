@@ -75,6 +75,15 @@ void load(Settings& s) {
   s.toneBusyHz = p.getUShort("tBusyHz", s.toneBusyHz);
   s.toneLevel = p.getUShort("tLevel", s.toneLevel);
 
+  s.dtmfEnabled = p.getBool("dtmfOn", s.dtmfEnabled);
+  s.dtmfReturnMin = p.getUChar("dtmfRet", s.dtmfReturnMin);
+  if (p.isKey("dCode0")) {  // table saved at least once: take it as is
+    for (int i = 0; i < DTMF_SLOTS; i++) {
+      s.dtmfCode[i] = p.getString(("dCode" + String(i)).c_str(), "");
+      s.dtmfRoom[i] = p.getString(("dRoom" + String(i)).c_str(), "");
+    }
+  }
+
   s.cwIdEnabled = p.getBool("cwId", s.cwIdEnabled);
   s.cwIdMinutes = p.getUChar("cwIdMin", s.cwIdMinutes);
   s.cwWpm = p.getUChar("cwWpm", s.cwWpm);
@@ -143,6 +152,13 @@ void save(const Settings& s) {
   p.putUChar("tBusy", s.toneBusy);
   p.putUShort("tBusyHz", s.toneBusyHz);
   p.putUShort("tLevel", s.toneLevel);
+
+  p.putBool("dtmfOn", s.dtmfEnabled);
+  p.putUChar("dtmfRet", s.dtmfReturnMin);
+  for (int i = 0; i < DTMF_SLOTS; i++) {
+    p.putString(("dCode" + String(i)).c_str(), s.dtmfCode[i]);
+    p.putString(("dRoom" + String(i)).c_str(), s.dtmfRoom[i]);
+  }
 
   p.putBool("cwId", s.cwIdEnabled);
   p.putUChar("cwIdMin", s.cwIdMinutes);

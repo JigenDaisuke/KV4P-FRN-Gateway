@@ -88,6 +88,7 @@ void Gateway::begin(const Settings& s, RadioSA818& radio) {
   fc.city = s.frnCity.c_str();
   fc.net = s.frnNet.c_str();
 
+  currentRoom_ = s.frnNet;
   transport_ = new WiFiTransport();
   frn_ = new frn::Client(*transport_, *this);
   frn_->setConfig(fc);
@@ -198,6 +199,7 @@ void Gateway::netTask() {
       strncpy(st_.frn, frn::stateName(frn_->state()), sizeof(st_.frn) - 1);
       strncpy(st_.talker, talker_, sizeof(st_.talker) - 1);
       strncpy(st_.lastLocal, lastLocal_, sizeof(st_.lastLocal) - 1);
+      strncpy(st_.room, currentRoom_.c_str(), sizeof(st_.room) - 1);
       st_.ptt = radio_->ptt();
       st_.carrier = radio_->carrier();
       st_.radioOk = radio_->found();
@@ -266,9 +268,12 @@ void Gateway::tick(uint32_t now) {
         testTone_ = 0;
         LOGF("test tone %d requested from the web page", k);
         startCourtesy(now, (uint8_t)k);
-      } else if (!totLocked_ && sqStable && frnStarted_ && frn_->loggedIn()) {
-        startRfToNet(now);
+      } else if (!totLocked_ && sqStable && frnStarted_) {
+        startRfToNet(now);  // also when not logged in: DTMF commands must still work
       } else {
+        if (cfg_.dtmfReturnMin && currentRoom_ != cfg_.frnNet &&
+            now - lastTraffic_ > (uint32_t)cfg_.dtmfReturnMin * 60000UL)
+          switchRoom(cfg_.frnNet, now, "inactivity, back to the main room");
         // keep only a short pre-roll so the first syllable is not lost
         size_t keep = (size_t)(cfg_.sqOpenMs + 150) * 8 * sizeof(int16_t);
         size_t avail = xStreamBufferBytesAvailable(capture_);
@@ -278,11 +283,7 @@ void Gateway::tick(uint32_t now) {
     }
 
     case GwState::RfToNet:
-      if (!frn_->loggedIn()) {
-        endRfToNet(now, "FRN disconnected");
-        break;
-      }
-      if (!frn_->txWanted()) frn_->requestTx(now);  // e.g. after a reconnect
+      if (!cmdMode_ && frn_->loggedIn() && !frn_->txWanted()) frn_->requestTx(now);  // e.g. after a reconnect
       pumpRfToNet(now, false);
       if (!sqHeld) {
         endRfToNet(now, "carrier dropped");
@@ -337,11 +338,15 @@ void Gateway::tick(uint32_t now) {
         case TxPhase::CwId:
           pumpGenerator(true);
           if (cw_.done() && xStreamBufferBytesAvailable(play_) == 0) {
-            lastCwId_ = now;
-            cwEverSent_ = true;
-            LOGF("CW ID sent (%s)", cfg_.frnCallsign.c_str());
-            phase_ = netVoiceActive_ ? TxPhase::Playing : TxPhase::Tail;
-            phaseSince_ = now;
+            if (cwIsId_) {
+              lastCwId_ = now;
+              cwEverSent_ = true;
+              LOGF("CW ID sent (%s)", cfg_.frnCallsign.c_str());
+              phase_ = netVoiceActive_ ? TxPhase::Playing : TxPhase::Tail;
+              phaseSince_ = now;
+            } else {
+              afterTone(now);  // code sent: now the ID if it is due
+            }
           }
           break;
         case TxPhase::Tail:
@@ -363,16 +368,22 @@ void Gateway::pumpGenerator(bool cw) {
   }
 }
 
-bool Gateway::startTone(uint8_t kind) {
-  uint8_t preset = 0;
-  uint16_t hz = 1000;
+bool Gateway::presetFor(uint8_t kind, uint8_t& preset, uint16_t& hz) const {
   switch (kind) {
     case TONE_QSO_END: preset = cfg_.toneQsoEnd; hz = cfg_.toneQsoEndHz; break;
     case TONE_LOCAL: preset = cfg_.toneLocal; hz = cfg_.toneLocalHz; break;
     case TONE_BUSY: preset = cfg_.toneBusy; hz = cfg_.toneBusyHz; break;
+    case TONE_CMD_OK: preset = 5; hz = 1000; break;   // three rising tones (+ the code in CW)
+    case TONE_CMD_ERR: preset = 4; hz = 450; break;   // falling, low: unknown code
     default: return false;
   }
-  if (preset == 0) return false;
+  return preset != 0;
+}
+
+bool Gateway::startTone(uint8_t kind) {
+  uint8_t preset = 0;
+  uint16_t hz = 1000;
+  if (!presetFor(kind, preset, hz)) return false;
   tone_.start(preset, hz, cfg_.toneLevel);
   return !tone_.done();
 }
@@ -384,10 +395,19 @@ void Gateway::afterTone(uint32_t now) {
     phaseSince_ = now;
     return;
   }
+  if (pendingCw_[0]) {  // confirmation of a DTMF command: the code in CW
+    cw_.start(pendingCw_, cfg_.cwWpm, cfg_.cwToneHz, cfg_.cwLevel, 120, 100);
+    pendingCw_[0] = 0;
+    cwIsId_ = false;
+    phase_ = TxPhase::CwId;
+    phaseSince_ = now;
+    return;
+  }
   bool due = cfg_.cwIdEnabled && cfg_.frnCallsign.length() > 0 &&
              (!cwEverSent_ || now - lastCwId_ >= (uint32_t)cfg_.cwIdMinutes * 60000UL);
   if (due) {
     cw_.start(cfg_.frnCallsign.c_str(), cfg_.cwWpm, cfg_.cwToneHz, cfg_.cwLevel);
+    cwIsId_ = true;
     phase_ = TxPhase::CwId;
   } else {
     phase_ = TxPhase::Tail;
@@ -397,8 +417,9 @@ void Gateway::afterTone(uint32_t now) {
 
 // Key up only to send a courtesy tone (after a local over, or a test).
 void Gateway::startCourtesy(uint32_t now, uint8_t kind) {
-  uint8_t preset = kind == TONE_LOCAL ? cfg_.toneLocal : kind == TONE_BUSY ? cfg_.toneBusy : cfg_.toneQsoEnd;
-  if (preset == 0) return;
+  uint8_t preset = 0;
+  uint16_t hz = 0;
+  if (!presetFor(kind, preset, hz)) return;
   netVoiceIgnored_ = false;
   startNetToRf(now);
   pendingTone_ = kind;
@@ -407,14 +428,27 @@ void Gateway::startCourtesy(uint32_t now, uint8_t kind) {
 
 // --- radio -> FRN ---------------------------------------------------------
 static bool trimPending = false;
+namespace {
+constexpr size_t PRE_MAX = 8000;  // 1 s of audio kept while waiting for the floor
+int16_t preBuf[PRE_MAX];
+size_t preHead = 0, preLen = 0;   // ring buffer (net task only)
+size_t txFill = 0;                // samples already in txPcm
+}  // namespace
+
 
 void Gateway::startRfToNet(uint32_t now) {
   gs_ = GwState::RfToNet;
   gsSince_ = now;
   trimPending = false;
   rfPacketsSent_ = 0;
-  frn_->requestTx(now);
-  LOGF("RADIO->FRN: carrier detected, requesting the floor");
+  cmdMode_ = false;
+  cmdBuf_[0] = 0;
+  dtmf_.reset();
+  preLen = 0;
+  txFill = 0;
+  lastTraffic_ = now;
+  if (frn_->loggedIn()) frn_->requestTx(now);
+  LOGF("RADIO->FRN: carrier detected%s", frn_->loggedIn() ? ", requesting the floor" : " (FRN not connected)");
 }
 
 void Gateway::onFrnTxApproved() {
@@ -422,46 +456,140 @@ void Gateway::onFrnTxApproved() {
   LOGF("RADIO->FRN: floor granted");
 }
 
+// Every 20 ms chunk from the radio goes through the DTMF decoder first, then
+// into a 1 s pre-buffer, and from there into 200 ms FRN packets once the
+// server has granted the floor.
 void Gateway::pumpRfToNet(uint32_t now, bool final) {
-  size_t avail = xStreamBufferBytesAvailable(capture_) / sizeof(int16_t);
-  if (!frn_->txActive()) {
-    // Waiting for the floor: keep at most 1 s.
-    if (avail > 8000) discard(capture_, (avail - 8000) * sizeof(int16_t));
-    if (final && avail) discard(capture_, avail * sizeof(int16_t));
-    return;
+  int16_t chunk[160];
+  while (xStreamBufferBytesAvailable(capture_) >= sizeof(chunk)) {
+    xStreamBufferReceive(capture_, chunk, sizeof(chunk), 0);
+    handleChunk(chunk, 160, now);
   }
-  if (trimPending) {  // limit start-up latency to ~400 ms
-    trimPending = false;
-    if (avail > 3200) {
-      discard(capture_, (avail - 3200) * sizeof(int16_t));
-      avail = 3200;
+  if (!final) return;
+  size_t rem = xStreamBufferReceive(capture_, chunk, sizeof(chunk), 0) / sizeof(int16_t);
+  if (rem) handleChunk(chunk, rem, now);
+  if (!cmdMode_ && frn_->txActive()) {
+    drainPre(now);
+    if (txFill > 0) {
+      for (size_t i = txFill; i < (size_t)frn::PACKET_SAMPLES; i++) txPcm[i] = 0;
+      if (frn_->sendVoice(txPcm, now)) rfPacketsSent_++;
     }
   }
-  while (avail >= (size_t)frn::PACKET_SAMPLES) {
-    xStreamBufferReceive(capture_, txPcm, sizeof(txPcm), 0);
-    if (!frn_->sendVoice(txPcm, now)) return;
-    rfPacketsSent_++;
-    avail -= frn::PACKET_SAMPLES;
+  preLen = 0;
+  txFill = 0;
+}
+
+void Gateway::handleChunk(const int16_t* c, size_t n, uint32_t now) {
+  if (cfg_.dtmfEnabled) {
+    char d = dtmf_.process(c, (int)n);
+    if (d) onDtmf(d, now);
   }
-  if (final && avail > 0) {
-    size_t got = xStreamBufferReceive(capture_, txPcm, avail * sizeof(int16_t), 0) / sizeof(int16_t);
-    for (size_t i = got; i < (size_t)frn::PACKET_SAMPLES; i++) txPcm[i] = 0;
-    if (frn_->sendVoice(txPcm, now)) rfPacketsSent_++;
+  if (cmdMode_) return;  // command in progress: nothing goes to FRN
+  for (size_t i = 0; i < n; i++) {
+    size_t pos = (preHead + preLen) % PRE_MAX;
+    preBuf[pos] = c[i];
+    if (preLen < PRE_MAX) preLen++;
+    else preHead = (preHead + 1) % PRE_MAX;  // full: drop the oldest sample
+  }
+  if (frn_->txActive()) drainPre(now);
+}
+
+void Gateway::drainPre(uint32_t now) {
+  if (trimPending) {  // floor just granted: limit start-up latency to ~400 ms
+    trimPending = false;
+    while (preLen > 3200) {
+      preHead = (preHead + 1) % PRE_MAX;
+      preLen--;
+    }
+  }
+  while (preLen > 0) {
+    txPcm[txFill++] = preBuf[preHead];
+    preHead = (preHead + 1) % PRE_MAX;
+    preLen--;
+    if (txFill == (size_t)frn::PACKET_SAMPLES) {
+      txFill = 0;
+      if (!frn_->sendVoice(txPcm, now)) return;
+      rfPacketsSent_++;
+    }
   }
 }
 
+// "#" opens a command, digits follow, "*" clears; the end of the over runs it.
+void Gateway::onDtmf(char d, uint32_t now) {
+  if (d == '#') {
+    if (!cmdMode_) {
+      cmdMode_ = true;
+      preLen = 0;   // drop the "#" tone not yet sent
+      txFill = 0;
+      frn_->endTx(now);  // give the floor back: the others must not hear the tones
+      LOGF("DTMF: command started");
+    }
+    cmdBuf_[0] = 0;
+    return;
+  }
+  if (!cmdMode_) return;
+  size_t l = strlen(cmdBuf_);
+  if (d == '*') {
+    cmdBuf_[0] = 0;
+  } else if (d >= '0' && d <= '9' && l < sizeof(cmdBuf_) - 1) {
+    cmdBuf_[l] = d;
+    cmdBuf_[l + 1] = 0;
+  }
+  LOGF("DTMF: #%s", cmdBuf_);
+}
+
+void Gateway::executeCommand(uint32_t now) {
+  String code = cmdBuf_;
+  String room;
+  if (code == "0") {
+    room = cfg_.frnNet;
+  } else if (code.length()) {
+    for (int i = 0; i < DTMF_SLOTS; i++)
+      if (cfg_.dtmfCode[i] == code && cfg_.dtmfRoom[i].length()) room = cfg_.dtmfRoom[i];
+  }
+  if (!room.length()) {
+    LOGF("DTMF #%s: unknown code", cmdBuf_);
+    startCourtesy(now, TONE_CMD_ERR);
+    return;
+  }
+  LOGF("DTMF #%s -> room '%s'", cmdBuf_, room.c_str());
+  strncpy(pendingCw_, cmdBuf_, sizeof(pendingCw_) - 1);
+  pendingCw_[sizeof(pendingCw_) - 1] = 0;
+  startCourtesy(now, TONE_CMD_OK);
+  if (room != currentRoom_) switchRoom(room, now, "DTMF");
+}
+
+// FRN has no "join": close the session and log in again with the new room.
+void Gateway::switchRoom(const String& room, uint32_t now, const char* why) {
+  currentRoom_ = room;
+  lastTraffic_ = now;
+  frn::Config fc = frn_->config();
+  fc.net = room.c_str();
+  frn_->setConfig(fc);
+  LOGF("room change -> '%s' (%s)", room.c_str(), why);
+  if (frnStarted_) frn_->start(now, 1500);  // short pause so the server drops the old session
+}
+
 void Gateway::endRfToNet(uint32_t now, const char* why) {
-  if (frn_->loggedIn()) pumpRfToNet(now, true);
+  pumpRfToNet(now, true);
   frn_->endTx(now);
+  lastTraffic_ = now;
   uint32_t dur = now - gsSince_;
   LOGF("RADIO->FRN end (%s), %lu.%lu s", why, (unsigned long)(dur / 1000), (unsigned long)((dur % 1000) / 100));
   snprintf(lastLocal_, sizeof(lastLocal_), "%lu.%lu s, %s", (unsigned long)(dur / 1000),
            (unsigned long)((dur % 1000) / 100), why);
   gs_ = GwState::Idle;
   gsSince_ = now;
+  if (cmdMode_) {  // the over was a DTMF command
+    cmdMode_ = false;
+    dtmf_.reset();
+    executeCommand(now);
+    return;
+  }
+  dtmf_.reset();
   // "Coda": tell the local station whether its over really went out on FRN.
   const bool timeout = strcmp(why, "TIME-OUT") == 0;
-  if (strcmp(why, "FRN disconnected") != 0 && strcmp(why, "Wi-Fi down") != 0) {
+  if (strcmp(why, "Wi-Fi down") != 0) {
     if (rfPacketsSent_ > 0 && !timeout) startCourtesy(now, TONE_LOCAL);
     else startCourtesy(now, TONE_BUSY);
   }
@@ -477,6 +605,7 @@ void Gateway::startNetToRf(uint32_t now) {
   phase_ = TxPhase::KeyUp;
   gsSince_ = phaseSince_ = now;
   pendingTone_ = TONE_QSO_END;
+  lastTraffic_ = now;
   if (netVoiceActive_) LOGF("FRN->RADIO: %s", talker_);
 }
 

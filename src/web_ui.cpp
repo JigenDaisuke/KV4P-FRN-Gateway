@@ -109,7 +109,7 @@ void handleStatus() {
   j.num("level", st.rxLevel);
   j.num("adc", st.adcRate);
   j.num("clients", st.clients);
-  j.str("net", S->frnNet);
+  j.str("net", st.room);
   j.num("rx", (long)st.voiceRx);
   j.num("tx", (long)st.voiceTx);
   j.num("logins", (long)st.logins);
@@ -184,6 +184,15 @@ void handleConfig() {
   j.num("tBusy", s.toneBusy);
   j.num("tBusyHz", s.toneBusyHz);
   j.num("tLevel", s.toneLevel);
+  j.boolean("dtmfOn", s.dtmfEnabled);
+  j.num("dtmfRet", s.dtmfReturnMin);
+  for (int i = 0; i < DTMF_SLOTS; i++) {
+    char k[12];
+    snprintf(k, sizeof(k), "dCode%d", i);
+    j.str(k, s.dtmfCode[i]);
+    snprintf(k, sizeof(k), "dRoom%d", i);
+    j.str(k, s.dtmfRoom[i]);
+  }
   j.boolean("cwId", s.cwIdEnabled);
   j.num("cwIdMin", s.cwIdMinutes);
   j.num("cwWpm", s.cwWpm);
@@ -279,6 +288,22 @@ void handleSave() {
   s.toneBusy = clampT<uint8_t>(argL("tBusy", s.toneBusy), 0, tones::PRESETS - 1);
   s.toneBusyHz = clampT<uint16_t>(argL("tBusyHz", s.toneBusyHz), 300, 3000);
   s.toneLevel = clampT<uint16_t>(argL("tLevel", s.toneLevel), 500, 30000);
+
+  s.dtmfEnabled = server.hasArg("dtmfOn");
+  s.dtmfReturnMin = clampT<uint8_t>(argL("dtmfRet", s.dtmfReturnMin), 0, 240);
+  for (int i = 0; i < DTMF_SLOTS; i++) {
+    char kc[12], kr[12];
+    snprintf(kc, sizeof(kc), "dCode%d", i);
+    snprintf(kr, sizeof(kr), "dRoom%d", i);
+    if (!server.hasArg(kc)) continue;
+    String code = server.arg(kc), clean;
+    for (size_t c = 0; c < code.length() && clean.length() < 6; c++)  // digits only, '#' optional
+      if (code[c] >= '0' && code[c] <= '9') clean += code[c];
+    String room = arg(kr, "");
+    room.trim();
+    s.dtmfCode[i] = (clean == "0") ? String("") : clean;  // #0 is reserved: main room
+    s.dtmfRoom[i] = room;
+  }
 
   s.cwIdEnabled = server.hasArg("cwId");
   s.cwIdMinutes = clampT<uint8_t>(argL("cwIdMin", s.cwIdMinutes), 1, 60);
