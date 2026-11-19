@@ -131,9 +131,13 @@ void setup() {
   }
   if (MDNS.begin(cfg.hostname.c_str())) MDNS.addService("http", "tcp", 80);
 
+  // Local time (EchoLink directory shows it); SNTP keeps retrying until online.
+  configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.google.com");
   gateway.begin(cfg, radio);
   if (!frnProfileComplete())
     LOGF("FRN profile incomplete: fill in e-mail, password, callsign, name, city and country on the web page");
+  if (cfg.elCallsign.length() == 0)
+    LOGF("EchoLink not configured (scheda EchoLink della pagina web)");
 }
 
 void loop() {
@@ -165,7 +169,7 @@ void loop() {
     }
   }
   // Only run FRN when credentials exist (avoids hammering the server).
-  gateway.setNetworkUp(up && frnProfileComplete());
+  gateway.setNetworkUp(up);  // the gateway checks the credentials of the active system
 
   // Close the config AP once the station link has been stable for a minute.
   if (apActive && up && millis() - staConnectedSince > 60000) {

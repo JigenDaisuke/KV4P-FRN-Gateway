@@ -1,0 +1,8 @@
+{
+  "name": "el_md5",
+  "version": "1.6.0",
+  "description": "MD5 (RFC 1321) by L. Peter Deutsch / Aladdin Enterprises, used for EchoLink proxy authentication.",
+  "license": "Zlib",
+  "frameworks": "*",
+  "platforms": "*"
+}

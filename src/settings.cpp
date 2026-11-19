@@ -84,6 +84,20 @@ void load(Settings& s) {
     }
   }
 
+  s.startSystem = p.getUChar("sysStart", s.startSystem);
+  s.elCallsign = p.getString("elCall", s.elCallsign);
+  s.elPassword = p.getString("elPass", s.elPassword);
+  s.elSysop = p.getString("elSysop", s.elSysop);
+  s.elLocation = p.getString("elLoc", s.elLocation);
+  s.elInfo = p.getString("elInfo", s.elInfo);
+  s.elServer = p.getString("elServer", s.elServer);
+  s.elProxyHost = p.getString("elPxHost", s.elProxyHost);
+  s.elProxyPort = p.getUShort("elPxPort", s.elProxyPort);
+  s.elProxyPass = p.getString("elPxPass", s.elProxyPass);
+  s.elUseProxy = p.getBool("elPxOn", s.elUseProxy);
+  s.elAccept = p.getBool("elAccept", s.elAccept);
+  s.elIdleMin = p.getUShort("elIdle", s.elIdleMin);
+
   s.cwIdEnabled = p.getBool("cwId", s.cwIdEnabled);
   s.cwIdMinutes = p.getUChar("cwIdMin", s.cwIdMinutes);
   s.cwWpm = p.getUChar("cwWpm", s.cwWpm);
@@ -159,6 +173,20 @@ void save(const Settings& s) {
     p.putString(("dCode" + String(i)).c_str(), s.dtmfCode[i]);
     p.putString(("dRoom" + String(i)).c_str(), s.dtmfRoom[i]);
   }
+
+  p.putUChar("sysStart", s.startSystem);
+  p.putString("elCall", s.elCallsign);
+  p.putString("elPass", s.elPassword);
+  p.putString("elSysop", s.elSysop);
+  p.putString("elLoc", s.elLocation);
+  p.putString("elInfo", s.elInfo);
+  p.putString("elServer", s.elServer);
+  p.putString("elPxHost", s.elProxyHost);
+  p.putUShort("elPxPort", s.elProxyPort);
+  p.putString("elPxPass", s.elProxyPass);
+  p.putBool("elPxOn", s.elUseProxy);
+  p.putBool("elAccept", s.elAccept);
+  p.putUShort("elIdle", s.elIdleMin);
 
   p.putBool("cwId", s.cwIdEnabled);
   p.putUChar("cwIdMin", s.cwIdMinutes);

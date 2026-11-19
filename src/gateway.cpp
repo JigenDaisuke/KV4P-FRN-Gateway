@@ -4,31 +4,9 @@
 #include <string.h>
 
 #include "board_kv4p.h"
+#include "el_net_esp32.h"
+#include "wifi_transport.h"
 #include "logbuf.h"
-
-// ---------------------------------------------------------------------------
-// TCP transport on top of WiFiClient
-// ---------------------------------------------------------------------------
-class WiFiTransport : public frn::Transport {
- public:
-  bool connect(const char* host, uint16_t port) override {
-    c_.stop();
-    if (!c_.connect(host, port, 5000)) return false;
-    c_.setNoDelay(true);
-    return true;
-  }
-  void close() override { c_.stop(); }
-  bool connected() override { return c_.connected(); }
-  int read(uint8_t* buf, size_t maxLen) override {
-    int a = c_.available();
-    if (a <= 0) return 0;
-    return c_.read(buf, (size_t)a < maxLen ? (size_t)a : maxLen);
-  }
-  size_t write(const uint8_t* buf, size_t len) override { return c_.write(buf, len); }
-
- private:
-  WiFiClient c_;
-};
 
 // ---------------------------------------------------------------------------
 namespace {
@@ -92,6 +70,42 @@ void Gateway::begin(const Settings& s, RadioSA818& radio) {
   transport_ = new WiFiTransport();
   frn_ = new frn::Client(*transport_, *this);
   frn_->setConfig(fc);
+
+  // EchoLink: direct UDP or through a proxy
+  if (s.elUseProxy && s.elProxyHost.length()) {
+    elTcp_ = new WiFiTransport(3000);
+    el::ProxyNet* px = new el::ProxyNet(*elTcp_, elResolve);
+    px->configure(s.elProxyHost.c_str(), s.elProxyPort, s.elCallsign.c_str(), s.elProxyPass.c_str());
+    elNet_ = px;
+  } else {
+    elNet_ = new DirectNet();
+  }
+  el_ = new el::Client(*elNet_, *this);
+  el::Config ec;
+  ec.callsign = s.elCallsign.c_str();
+  ec.password = s.elPassword.c_str();
+  ec.sysopName = s.elSysop.c_str();
+  ec.location = s.elLocation.c_str();
+  ec.info = s.elInfo.c_str();
+  ec.server = s.elServer.c_str();
+  ec.acceptIncoming = s.elAccept;
+  ec.idleTimeoutS = (uint32_t)s.elIdleMin * 60;
+  el_->setConfig(ec);
+  el_->localTime = []() {
+    struct tm t;
+    char b[8] = "00:00";
+    if (getLocalTime(&t, 0)) strftime(b, sizeof(b), "%H:%M", &t);
+    return std::string(b);
+  };
+  el_->onConnectResult = [this](bool ok, const std::string& call) {
+    elResultCall_ = call.c_str();
+    pendingElResult_ = ok ? 1 : 2;
+  };
+  el_->onQso = [this](bool up, const std::string& call) {
+    LOGF("EchoLink: %s %s", up ? "QSO with" : "QSO ended:", call.c_str());
+  };
+  sys_ = (s.startSystem == 1 && sysConfigured(Sys::EchoLink)) ? Sys::EchoLink : Sys::Frn;
+  LOGF("system at start-up: %s", sys_ == Sys::Frn ? "FRN" : "EchoLink");
 
   audio_.rxGain = s.rxGain;
   audio_.txGain = s.txGain;
@@ -168,25 +182,38 @@ void Gateway::netTask() {
         wantTx_ = false;
         playEnable_ = false;
         if (frnStarted_) {
-          frn_->endTx(now);
-          frn_->stop();  // closes the TCP session (FIN) so the server drops it at once
-          frnStarted_ = false;
+          netEndTx(now);
+          netStop(now);  // FRN: closes the TCP session (FIN) so the server drops it at once
         }
-        LOGF("shutdown: FRN session closed");
+        LOGF("shutdown: network session closed");
         shutdownDone_ = true;
       }
       vTaskDelay(pdMS_TO_TICKS(20));
       continue;
     }
-    if (netUp_ && !frnStarted_ && gs_ != GwState::NetToRf) {  // no blocking connect while on air
-      frn_->start(now);
-      frnStarted_ = true;
+    if (netUp_ && !frnStarted_ && sysConfigured(sys_) && gs_ != GwState::NetToRf) {  // not while on air
+      netStart(now);
     } else if (!netUp_ && frnStarted_) {
       if (gs_ == GwState::RfToNet) endRfToNet(now, "Wi-Fi down");
-      frn_->stop();
-      frnStarted_ = false;
+      netStop(now);
     }
-    if (frnStarted_) frn_->loop(now);
+    if (frnStarted_) netLoop(now);
+    // EchoLink connect result (reported from inside el_->loop)
+    if (pendingElResult_ && (gs_ == GwState::Idle || gs_ == GwState::Lockout)) {
+      int r = pendingElResult_;
+      pendingElResult_ = 0;
+      if (r == 1) {
+        strncpy(pendingCw_, "", sizeof(pendingCw_));
+        String c = elResultCall_;
+        int dash = c.indexOf('-');
+        if (dash > 0) c = c.substring(0, dash);  // CW: callsign without -L/-R
+        strncpy(pendingCw_, c.c_str(), sizeof(pendingCw_) - 1);
+        pendingCw_[sizeof(pendingCw_) - 1] = 0;
+        startCourtesy(millis(), TONE_CMD_OK);
+      } else {
+        startCourtesy(millis(), TONE_CMD_ERR);
+      }
+    }
     now = millis();
     heartbeat_ = now;
     tick(now);
@@ -196,7 +223,10 @@ void Gateway::netTask() {
       lastStatus = now;
       xSemaphoreTake(statusMtx_, portMAX_DELAY);
       strncpy(st_.gw, gwName(gs_), sizeof(st_.gw) - 1);
-      strncpy(st_.frn, frn::stateName(frn_->state()), sizeof(st_.frn) - 1);
+      strncpy(st_.frn, netStateName(), sizeof(st_.frn) - 1);
+      strncpy(st_.sys, sys_ == Sys::Frn ? "FRN" : "EchoLink", sizeof(st_.sys) - 1);
+      strncpy(st_.elRemote, (sys_ == Sys::EchoLink && el_->connected()) ? el_->remoteCall().c_str() : "",
+              sizeof(st_.elRemote) - 1);
       strncpy(st_.talker, talker_, sizeof(st_.talker) - 1);
       strncpy(st_.lastLocal, lastLocal_, sizeof(st_.lastLocal) - 1);
       strncpy(st_.room, currentRoom_.c_str(), sizeof(st_.room) - 1);
@@ -207,7 +237,7 @@ void Gateway::netTask() {
       st_.rssi = st_.wifi ? WiFi.RSSI() : 0;
       st_.rxLevel = level_;
       st_.adcRate = (int)audio_.adcRateHz();
-      st_.clients = (int)frn_->clients().size();
+      st_.clients = sys_ == Sys::Frn ? (int)frn_->clients().size() : (el_->connected() ? 1 : 0);
       const auto& s = frn_->stats();
       st_.voiceRx = s.voiceRx;
       st_.voiceTx = s.voiceTx;
@@ -283,7 +313,7 @@ void Gateway::tick(uint32_t now) {
     }
 
     case GwState::RfToNet:
-      if (!cmdMode_ && frn_->loggedIn() && !frn_->txWanted()) frn_->requestTx(now);  // e.g. after a reconnect
+      if (!cmdMode_ && netLinked() && !netTxWanted()) netRequestTx(now);  // e.g. after a reconnect
       pumpRfToNet(now, false);
       if (!sqHeld) {
         endRfToNet(now, "carrier dropped");
@@ -452,8 +482,8 @@ void Gateway::startRfToNet(uint32_t now) {
   preLen = 0;
   txFill = 0;
   lastTraffic_ = now;
-  if (frn_->loggedIn()) frn_->requestTx(now);
-  LOGF("RADIO->FRN: carrier detected%s", frn_->loggedIn() ? ", requesting the floor" : " (FRN not connected)");
+  if (netLinked()) netRequestTx(now);
+  LOGF("RADIO->NET: carrier detected%s", netLinked() ? "" : " (network not linked)");
 }
 
 void Gateway::onFrnTxApproved() {
@@ -473,11 +503,11 @@ void Gateway::pumpRfToNet(uint32_t now, bool final) {
   if (!final) return;
   size_t rem = xStreamBufferReceive(capture_, chunk, sizeof(chunk), 0) / sizeof(int16_t);
   if (rem) handleChunk(chunk, rem, now);
-  if (!cmdMode_ && frn_->txActive()) {
+  if (!cmdMode_ && netTxActive()) {
     drainPre(now);
     if (txFill > 0) {
-      for (size_t i = txFill; i < (size_t)frn::PACKET_SAMPLES; i++) txPcm[i] = 0;
-      if (frn_->sendVoice(txPcm, now)) rfPacketsSent_++;
+      for (size_t i = txFill; i < netPacket(); i++) txPcm[i] = 0;
+      if (netSend(txPcm, now)) rfPacketsSent_++;
     }
   }
   preLen = 0;
@@ -496,7 +526,7 @@ void Gateway::handleChunk(const int16_t* c, size_t n, uint32_t now) {
     if (preLen < PRE_MAX) preLen++;
     else preHead = (preHead + 1) % PRE_MAX;  // full: drop the oldest sample
   }
-  if (frn_->txActive()) drainPre(now);
+  if (netTxActive()) drainPre(now);
 }
 
 void Gateway::drainPre(uint32_t now) {
@@ -511,9 +541,9 @@ void Gateway::drainPre(uint32_t now) {
     txPcm[txFill++] = preBuf[preHead];
     preHead = (preHead + 1) % PRE_MAX;
     preLen--;
-    if (txFill == (size_t)frn::PACKET_SAMPLES) {
+    if (txFill == netPacket()) {
       txFill = 0;
-      if (!frn_->sendVoice(txPcm, now)) return;
+      if (!netSend(txPcm, now)) return;
       rfPacketsSent_++;
     }
   }
@@ -526,7 +556,7 @@ void Gateway::onDtmf(char d, uint32_t now) {
       cmdMode_ = true;
       preLen = 0;   // drop the "#" tone not yet sent
       txFill = 0;
-      frn_->endTx(now);  // give the floor back: the others must not hear the tones
+      netEndTx(now);  // give the floor back: the others must not hear the tones
       LOGF("DTMF: command started");
     }
     cmdBuf_[0] = 0;
@@ -534,7 +564,10 @@ void Gateway::onDtmf(char d, uint32_t now) {
   }
   if (!cmdMode_) return;
   size_t l = strlen(cmdBuf_);
-  if (d == '*') {
+  if (d == '*' && l == 0) {
+    cmdBuf_[0] = '*';  // "#*1" FRN, "#*2" EchoLink
+    cmdBuf_[1] = 0;
+  } else if (d == '*') {
     cmdBuf_[0] = 0;
   } else if (d >= '0' && d <= '9' && l < sizeof(cmdBuf_) - 1) {
     cmdBuf_[l] = d;
@@ -545,6 +578,35 @@ void Gateway::onDtmf(char d, uint32_t now) {
 
 void Gateway::executeCommand(uint32_t now) {
   String code = cmdBuf_;
+  if (code == "*1" || code == "*2") {
+    Sys want = code == "*1" ? Sys::Frn : Sys::EchoLink;
+    if (!sysConfigured(want)) {
+      LOGF("DTMF #%s: %s not configured", cmdBuf_, want == Sys::Frn ? "FRN" : "EchoLink");
+      startCourtesy(now, TONE_CMD_ERR);
+      return;
+    }
+    strncpy(pendingCw_, want == Sys::Frn ? "FRN" : "EL", sizeof(pendingCw_) - 1);
+    startCourtesy(now, TONE_CMD_OK);
+    switchSystem(want, now);
+    return;
+  }
+  if (sys_ == Sys::EchoLink) {
+    if (code == "0" || code.length() == 0) {  // "#0": hang up
+      LOGF("DTMF #%s: EchoLink disconnect", cmdBuf_);
+      el_->disconnect(now, "DTMF");
+      startCourtesy(now, TONE_CMD_OK);
+      return;
+    }
+    uint32_t node = (uint32_t)strtoul(code.c_str(), nullptr, 10);
+    if (code[0] == '*' || node == 0 || !el_->running()) {
+      startCourtesy(now, TONE_CMD_ERR);
+      return;
+    }
+    LOGF("DTMF #%s: EchoLink connect to node %u", cmdBuf_, (unsigned)node);
+    el_->connectTo(node, now);
+    startCourtesy(now, TONE_LOCAL);  // "taken"; the callsign follows in CW when connected
+    return;
+  }
   String room;
   if (code == "0") {
     room = cfg_.frnNet;
@@ -572,12 +634,12 @@ void Gateway::switchRoom(const String& room, uint32_t now, const char* why) {
   fc.net = room.c_str();
   frn_->setConfig(fc);
   LOGF("room change -> '%s' (%s)", room.c_str(), why);
-  if (frnStarted_) frn_->start(now, 1500);  // short pause so the server drops the old session
+  if (frnStarted_ && sys_ == Sys::Frn) frn_->start(now, 1500);  // short pause so the server drops the old session
 }
 
 void Gateway::endRfToNet(uint32_t now, const char* why) {
   pumpRfToNet(now, true);
-  frn_->endTx(now);
+  netEndTx(now);
   lastTraffic_ = now;
   uint32_t dur = now - gsSince_;
   LOGF("RADIO->FRN end (%s), %lu.%lu s", why, (unsigned long)(dur / 1000), (unsigned long)((dur % 1000) / 100));
@@ -668,7 +730,10 @@ void Gateway::onFrnState(frn::State s) {
     LOGF("FRN state: %s", frn::stateName(s));
 }
 
-void Gateway::onFrnLog(const char* msg) { LOGF("FRN: %s", msg); }
+void Gateway::onFrnLog(const char* msg) {
+  if (strncmp(msg, "EL: ", 4) == 0) LOGF("EchoLink: %s", msg + 4);
+  else LOGF("FRN: %s", msg);
+}
 
 void Gateway::onFrnText(const char* line) { LOGF("FRN text: %s", line); }
 
@@ -679,9 +744,61 @@ void Gateway::updateLed(uint32_t now) {
     on = (now / 60) & 1;                     // flicker: traffic
   else if (!netUp_)
     on = (now / 500) & 1;                    // slow: no Wi-Fi
-  else if (!frnStarted_ || !frn_->loggedIn())
+  else if (!frnStarted_ || !netReady())
     on = (now / 100) & 1;                    // fast: no FRN login
   else
     on = true;                               // solid: ready
   digitalWrite(board::PIN_LED, on ? HIGH : LOW);
+}
+
+// --- active network system -------------------------------------------------
+bool Gateway::sysConfigured(Sys s) const {
+  if (s == Sys::Frn)
+    return cfg_.frnEmail.length() && cfg_.frnPassword.length() && cfg_.frnCallsign.length() && cfg_.frnName.length() &&
+           cfg_.frnCity.length() && cfg_.frnCountry.length();
+  return cfg_.elCallsign.length() && cfg_.elPassword.length();
+}
+
+void Gateway::switchSystem(Sys s, uint32_t now) {
+  if (s == sys_) return;
+  if (gs_ == GwState::RfToNet) endRfToNet(now, "system change");
+  if (frnStarted_) netStop(now);
+  sys_ = s;
+  LOGF("system -> %s", s == Sys::Frn ? "FRN" : "EchoLink");  // started by the net task loop
+}
+
+void Gateway::netStart(uint32_t now) {
+  if (sys_ == Sys::Frn) frn_->start(now);
+  else el_->start(now);
+  frnStarted_ = true;
+}
+
+void Gateway::netStop(uint32_t now) {
+  if (sys_ == Sys::Frn) frn_->stop();
+  else el_->stop(now);
+  frnStarted_ = false;
+}
+
+void Gateway::netLoop(uint32_t now) {
+  if (sys_ == Sys::Frn) frn_->loop(now);
+  else el_->loop(now);
+}
+
+bool Gateway::netReady() { return sys_ == Sys::Frn ? frn_->loggedIn() : el_->registered() || el_->connected(); }
+bool Gateway::netLinked() { return sys_ == Sys::Frn ? frn_->loggedIn() : el_->connected(); }
+void Gateway::netRequestTx(uint32_t now) {
+  if (sys_ == Sys::Frn) frn_->requestTx(now);
+}
+bool Gateway::netTxWanted() { return sys_ == Sys::Frn ? frn_->txWanted() : true; }
+bool Gateway::netTxActive() { return sys_ == Sys::Frn ? frn_->txActive() : el_->connected(); }
+bool Gateway::netSend(const int16_t* pcm, uint32_t now) {
+  return sys_ == Sys::Frn ? frn_->sendVoice(pcm, now) : el_->sendVoice(pcm, now);
+}
+void Gateway::netEndTx(uint32_t now) {
+  if (sys_ == Sys::Frn) frn_->endTx(now);
+}
+size_t Gateway::netPacket() const { return sys_ == Sys::Frn ? (size_t)frn::PACKET_SAMPLES : (size_t)el::PACKET_SAMPLES; }
+const char* Gateway::netStateName() {
+  if (!frnStarted_) return sys_ == Sys::Frn ? "OFF" : "EL_OFF";
+  return sys_ == Sys::Frn ? frn::stateName(frn_->state()) : el_->stateName();
 }

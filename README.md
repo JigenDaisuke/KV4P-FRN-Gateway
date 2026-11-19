@@ -42,6 +42,8 @@ ponte fra la stanza FRN e la frequenza radio.
 - **Cambio stanza con i toni DTMF**: dalla radio invii `#` più un codice (es. `#2`) e la
   stanza cambia; tabella codici → stanze configurabile, `#0` = stanza principale,
   ritorno automatico opzionale. I toni non vengono inoltrati in rete.
+- **EchoLink**: il gateway può lavorare come nodo EchoLink `-L` invece
+  che su FRN; si passa da un sistema all'altro con i DTMF `#*1` (FRN) e `#*2` (EchoLink).
 - **Identificativo CW** automatico del nominativo a fine passaggio (al massimo ogni N minuti).
 - **Fino a 3 reti Wi-Fi** (casa, hotspot del cellulare, ufficio): si collega alla prima
   della lista che trova attiva e, se la rete cade, ricerca da sola.
@@ -154,6 +156,44 @@ riparte dalla stanza principale. Se imposti *Ritorno alla stanza principale dopo
 il gateway ci torna da solo dopo N minuti senza traffico. Il decodificatore DTMF è in
 software (il modulo SA818 non ne ha uno) ed è testato contro voce, toni e rumore.
 
+## EchoLink
+
+Il gateway lavora su **un sistema alla volta**: FRN oppure EchoLink. Configuralo nella
+scheda **EchoLink**: nominativo del nodo (es. `IU8UUT-L`), password, nome, località (max 27 caratteri)
+e la modalità di rete (UDP diretto o proxy).
+
+> **Nominativo -L.** Per EchoLink `IU8UUT` e `IU8UUT-L` sono due nodi distinti, da
+> validare separatamente (ognuno con la sua password). Se il `-L` non è validato il directory
+> accetta comunque la registrazione, ma gli altri nodi ignorano le chiamate in silenzio.
+> Il nominativo semplice non è ammesso su un nodo collegato a una radio.
+
+Comandi DTMF dalla radio (sempre `#` + codice, la fine del passaggio conferma):
+
+| Codice | Azione |
+|---|---|
+| `#*1` | passa a FRN (conferma: tre toni + "FRN" in CW) |
+| `#*2` | passa a EchoLink (conferma: tre toni + "EL" in CW) |
+| `#<numero nodo>` | in EchoLink: chiama il nodo, es. `#9999` = server di test *ECHOTEST* |
+| `#0` | in EchoLink: chiude il collegamento |
+
+Quando il nodo chiamato risponde, il gateway trasmette il suo nominativo in CW; se non
+risponde o non esiste, il tono basso di errore. Le chiamate in arrivo vengono accettate se
+il gateway è libero (opzione disattivabile).
+
+**Rete.** Senza proxy il gateway usa le porte **UDP 5198 e 5199**: per ricevere chiamate
+inoltrale dal router all'IP del gateway (le chiamate in uscita spesso funzionano anche
+senza). Con un **proxy EchoLink** (porta TCP 8100, password `PUBLIC` per i proxy pubblici)
+tutto passa in una sola connessione in uscita: è la scelta giusta con l'hotspot del cellulare.
+I proxy pubblici sono spesso occupati: nel campo proxy puoi scriverne **più d'uno separati da
+virgola** (es. `elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es`) e il gateway passa da
+solo al successivo. Elenco aggiornato: <https://www.echolink.org/proxylist.jsp>.
+La casella **Usa proxy** sceglie la modalità: con la spunta il gateway usa i proxy
+elencati, senza spunta usa l'UDP diretto (la lista resta salvata per quando ti serve).
+
+Il protocollo segue `echolib` di SvxLink: registrazione sul directory ogni 5 minuti
+(ONLINE/BUSY), ricerca del nodo nella lista delle stazioni, controllo RTCP (SDES ogni 10 s,
+BYE) e audio RTP con 4 frame GSM 06.10 da 33 byte (80 ms) per pacchetto.
+
 ## Come funziona
 
 - **task audio** (core 1): gestisce I2S0 in modalità ADC integrato (ricezione) oppure DAC
@@ -179,12 +219,12 @@ Le parti portabili (protocollo FRN, codec, DSP, CW) hanno test che girano sul PC
 
 Il server FRN viene simulato: login (anche frammentato byte per byte), liste, keepalive,
 voce in arrivo, turno concesso e negato, concessione tardiva, login rifiutato, timeout,
-backoff, server di backup, catena audio completa, ID in CW, toni di cortesia e decodifica DTMF. Risultato attuale:
-**174 controlli, 0 errori**.
+backoff, server di backup, catena audio completa, ID in CW, toni di cortesia, decodifica DTMF e client EchoLink (directory, collegamenti, audio, proxy con MD5). Risultato attuale:
+**243 controlli, 0 errori**.
 
 ## Stato del progetto
 
-Versione 0.4.1: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
+Versione 0.5.0 (FRN + EchoLink; EchoLink verificato con *ECHOTEST* e nodi reali in UDP diretto, 19/11/2026): **login e collegamento verificati sul server AlterFRN di Voip-Italia**
 (stanza Prove, 18/11/2026). In corso la taratura audio. Da controllare in ogni installazione:
 
 - Il clock reale dell'ADC I2S (viene misurato e corretto in automatico, ma controlla il valore).
@@ -203,6 +243,9 @@ Vance Vagell (KV4P), che ringraziamo.
 ## Licenze
 
 - Codice del gateway: GPL-3.0, come kv4p-ht. Il protocollo segue SvxLink (GPL).
+- `lib/md5`: MD5 di L. Peter Deutsch / Aladdin Enterprises (licenza zlib), modificato solo
+  nei nomi delle funzioni.
+- Il client EchoLink segue `echolib` di SvxLink (GPL, Tobias Blomberg SM0SVX).
 - `lib/gsm`: libgsm © 1992-1994 Jutta Degener e Carsten Bormann, TU Berlin. Vedi
   `lib/gsm/COPYRIGHT`.
 

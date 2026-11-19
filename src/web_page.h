@@ -41,10 +41,10 @@ a{color:var(--ac2)}
 </style></head><body data-t="auto">
 <header><img class="logo" src="/logo.png" alt="FRN ITALIA"><h1>FRN ITALIA &mdash; Gateway KV4P<small id="hv">...</small></h1>
 <button id="thm" title="Cambia tema">Tema</button></header>
-<nav id="nav"><a data-p="st" class="on">Stato</a><a data-p="frn">Server FRN</a><a data-p="rad">Radio</a><a data-p="gw">Gateway</a><a data-p="ton">Toni</a><a data-p="dtmf">DTMF</a><a data-p="wifi">Wi-Fi</a><a data-p="sys">Sistema</a></nav>
+<nav id="nav"><a data-p="st" class="on">Stato</a><a data-p="frn">Server FRN</a><a data-p="el">EchoLink</a><a data-p="rad">Radio</a><a data-p="gw">Gateway</a><a data-p="ton">Toni</a><a data-p="dtmf">DTMF</a><a data-p="wifi">Wi-Fi</a><a data-p="sys">Sistema</a></nav>
 <main><form id="f">
 <section class="tab on" id="st">
- <div class="chips"><span class="chip"><i class="dot" id="cW"></i><span id="tW">Wi-Fi</span></span><span class="chip"><i class="dot" id="cF"></i><span id="tF">FRN</span></span><span class="chip"><i class="dot" id="cR"></i>Radio</span><span class="chip"><i class="dot" id="cT"></i>PTT</span><span class="chip"><i class="dot" id="cS"></i>Segnale RX</span></div>
+ <div class="chips"><span class="chip"><i class="dot" id="cW"></i><span id="tW">Wi-Fi</span></span><span class="chip"><i class="dot" id="cF"></i><span id="tF">Rete</span></span><span class="chip"><i class="dot" id="cR"></i>Radio</span><span class="chip"><i class="dot" id="cT"></i>PTT</span><span class="chip"><i class="dot" id="cS"></i>Segnale RX</span></div>
  <div class="card"><h2>Gateway</h2><div class="big" id="gs">-</div><div class="mu" id="gt">&nbsp;</div>
   <p class="mu" style="margin:12px 0 4px">Livello audio dalla radio <span id="lv"></span></p><div class="meter"><i id="lm"></i></div></div>
  <div class="card"><h2>Statistiche</h2><div class="kv" id="kv"></div></div>
@@ -62,6 +62,23 @@ a{color:var(--ac2)}
  <label>Tipo stazione<select name="frnCl"><option value="1">Gateway</option><option value="0">Crosslink</option><option value="2">PC Only</option></select></label>
  <label>Banda / canale (BC)<input name="frnBC" id="bc"></label></div>
  <p class="hint" id="bch"></p><p class="hint">Nominativo, nome, citt&agrave; e nazione sono obbligatori: senza, il server rifiuta il collegamento.</p></div></section>
+<section class="tab" id="el"><div class="card"><h2>EchoLink</h2><div class="grid">
+ <label>Sistema all'accensione<select name="sysStart"><option value="0">FRN</option><option value="1">EchoLink</option></select></label>
+ <label>Nominativo del nodo<input name="elCall" placeholder="IU8UUT-L" style="text-transform:uppercase"></label>
+ <label>Password EchoLink<input name="elPass" type="password" data-s="elPass_set"></label>
+ <label>Nome (sysop)<input name="elSysop"></label>
+ <label>Localit&agrave; (max 27 caratteri)<input name="elLoc" maxlength="27" placeholder="Napoli 145.500 FM"></label>
+ <label>Server directory<input name="elServer"></label>
+ <label class="ck"><input type="checkbox" name="elAccept">Accetta chiamate in arrivo</label>
+ <label>Chiudi dopo inattivit&agrave; (min, 0 = mai)<input name="elIdle" type="number" min="0" max="240"></label></div>
+ <label style="margin-top:12px">Messaggio informativo inviato a chi si collega<input name="elInfo"></label>
+ <p class="hint">Il gateway &egrave; su <b>un sistema alla volta</b>. Dalla radio: <b>#*1</b> = FRN, <b>#*2</b> = EchoLink. In EchoLink: <b>#</b> + numero nodo = chiama il nodo (es. <b>#9999</b> = test), <b>#0</b> = chiudi il collegamento. Il nominativo -L (o -R) va validato da EchoLink a parte: il nominativo semplice non &egrave; ammesso su un nodo collegato a una radio.</p></div>
+ <div class="card"><h2>Rete</h2>
+ <label class="ck" style="margin-bottom:12px"><input type="checkbox" name="elPxOn">Usa proxy (senza spunta = UDP diretto)</label><div class="grid">
+ <label>Proxy EchoLink<input name="elPxHost" placeholder="elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es"></label>
+ <label>Porta proxy<input name="elPxPort" type="number"></label>
+ <label>Password proxy<input name="elPxPass"></label></div>
+ <p class="hint">Senza la spunta il gateway usa le porte UDP 5198 e 5199: per ricevere chiamate devi inoltrarle dal router all'IP del gateway. Con un proxy (es. in rete mobile) non serve aprire porte; per i proxy pubblici la password &egrave; PUBLIC. Puoi scrivere <b>pi&ugrave; proxy separati da virgola</b>: se uno &egrave; occupato il gateway passa da solo al successivo. Elenco aggiornato: <a href="https://www.echolink.org/proxylist.jsp" target="_blank">echolink.org/proxylist.jsp</a>.</p></div></section>
 <section class="tab" id="rad"><div class="card"><h2>Modulo radio</h2><div class="grid">
  <label>Modulo<select name="uhf"><option value="0">VHF 134-174 MHz</option><option value="1">UHF 400-480 MHz</option></select></label>
  <label>Frequenza RX (MHz)<input name="freqRx" type="number" step="0.00625"></label><label>Frequenza TX (MHz)<input name="freqTx" type="number" step="0.00625"></label>
@@ -131,15 +148,16 @@ $('#rb').onclick=()=>{if(confirm('Riavviare il gateway?'))fetch('/reboot',{metho
 $('#up').onclick=()=>{const f=$('#fw').files[0];if(!f)return;const d=new FormData();d.append('fw',f);const x=new XMLHttpRequest();x.open('POST','/update');
  x.upload.onprogress=e=>$('#ups').textContent='Caricamento '+Math.round(e.loaded*100/e.total)+'%';x.onload=()=>{$('#ups').textContent=x.status==200?'Aggiornato, riavvio...':'Errore';if(x.status==200)setTimeout(()=>location.reload(),15000)};x.send(d)};
 function dot(id,c){$(id).className='dot '+c}
-const GW={'IDLE':['In ascolto','ok'],'RADIO->FRN':['Radio &rarr; FRN','rxc'],'FRN->RADIO':['FRN &rarr; Radio','txc'],'LOCKOUT':['Pausa','warn']};
+const GW={'IDLE':['In ascolto','ok'],'RADIO->FRN':['Radio &rarr; ',''],'FRN->RADIO':['',' &rarr; Radio'],'LOCKOUT':['Pausa','warn']};
 function st(){fetch('/api/status').then(r=>r.json()).then(j=>{
  dot('#cW',j.wifi?'ok':'bad');$('#tW').textContent=j.wifi?(j.ssid+' '+j.rssi+' dBm'):'Wi-Fi assente';
- const on=['IDLE','TX_WAITING','TX_AUDIO','RX_AUDIO','RX_LIST','RX_CLIENT_LIST','RX_CLIENT_LIST_HEADER','TX_APPROVED'].includes(j.frn);dot('#cF',on?'ok':(j.frn=='LOGIN_REJECTED'?'bad':'warn'));$('#tF').textContent='FRN '+(on?'collegato':j.frn.toLowerCase());
+ const on=['IDLE','TX_WAITING','TX_AUDIO','RX_AUDIO','RX_LIST','RX_CLIENT_LIST','RX_CLIENT_LIST_HEADER','TX_APPROVED','ONLINE','CONNECTED','CONNECTING'].includes(j.frn);dot('#cF',on?'ok':(j.frn=='LOGIN_REJECTED'?'bad':'warn'));
+ $('#tF').textContent=j.sys+' '+(j.frn=='CONNECTED'?('con '+j.elRemote):(on?(j.frn=='CONNECTING'?'chiamata...':'collegato'):j.frn.toLowerCase()));
  dot('#cR',j.radio?'ok':'bad');dot('#cT',j.ptt?'txc':'');dot('#cS',j.carrier?'rxc':'');
- const g=GW[j.gw]||[j.gw,''];$('#gs').innerHTML=g[0];
- $('#gt').textContent=j.gw=='FRN->RADIO'?('Parla: '+j.talker):(j.gw=='RADIO->FRN'?'Stai trasmettendo su FRN':('Ultimo da radio: '+(j.lastLocal||'-')));
+ const g=GW[j.gw]||[j.gw,''];$('#gs').innerHTML=j.gw=='RADIO->FRN'?g[0]+j.sys:(j.gw=='FRN->RADIO'?j.sys+g[1]:g[0]);
+ $('#gt').textContent=j.gw=='FRN->RADIO'?('Parla: '+j.talker):(j.gw=='RADIO->FRN'?('Stai trasmettendo su '+j.sys):('Ultimo da radio: '+(j.lastLocal||'-')));
  $('#lv').textContent=j.level;$('#lm').style.width=Math.min(100,j.level/120)+'%';
- const k={'Stazioni in rete':j.clients,'Stanza':j.net,'Pacchetti RX':j.rx,'Pacchetti TX':j.tx,'Login / connessioni':j.logins+' / '+j.conn,'Frame GSM errati':j.bad,'Clock ADC':j.adc+' Hz','IP':j.ip,'Uptime':Math.floor(j.up/60)+' h '+(j.up%60)+' min','Memoria libera':Math.round(j.heap/1024)+' kB'};
+ const k={'Sistema':j.sys,'Stazioni in rete':j.clients,'Stanza / nodo':j.sys=='FRN'?j.net:(j.elRemote||'-'),'Pacchetti RX':j.rx,'Pacchetti TX':j.tx,'Login / connessioni':j.logins+' / '+j.conn,'Frame GSM errati':j.bad,'Clock ADC':j.adc+' Hz','IP':j.ip,'Uptime':Math.floor(j.up/60)+' h '+(j.up%60)+' min','Memoria libera':Math.round(j.heap/1024)+' kB'};
  $('#kv').innerHTML=Object.entries(k).map(([a,b])=>'<div><span class=mu>'+a+'</span><b></b></div>').join('');let i=0;for(const v of Object.values(k))$$('#kv b')[i++].textContent=v;
 }).catch(()=>{dot('#cW','bad');$('#tW').textContent='Gateway non raggiungibile'})}
 function lg(){if(!$('#st').classList.contains('on'))return;fetch('/log').then(r=>r.text()).then(t=>{const p=$('#lg'),b=p.scrollTop+p.clientHeight>=p.scrollHeight-20;p.textContent=t;if(b)p.scrollTop=p.scrollHeight})}
