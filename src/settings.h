@@ -89,6 +89,7 @@ struct Settings {
   String elProxyHost;            // empty = direct UDP 5198/5199 (forward the ports)
   uint16_t elProxyPort = 8100;
   String elProxyPass = "PUBLIC";
+  bool elUseProxy = true;        // false = direct UDP even if proxies are listed
   bool elAccept = true;          // accept incoming connections
   uint16_t elIdleMin = 10;       // hang up after N min without audio (0 = never)
 

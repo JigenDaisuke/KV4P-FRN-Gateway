@@ -94,6 +94,7 @@ void load(Settings& s) {
   s.elProxyHost = p.getString("elPxHost", s.elProxyHost);
   s.elProxyPort = p.getUShort("elPxPort", s.elProxyPort);
   s.elProxyPass = p.getString("elPxPass", s.elProxyPass);
+  s.elUseProxy = p.getBool("elPxOn", s.elUseProxy);
   s.elAccept = p.getBool("elAccept", s.elAccept);
   s.elIdleMin = p.getUShort("elIdle", s.elIdleMin);
 
@@ -183,6 +184,7 @@ void save(const Settings& s) {
   p.putString("elPxHost", s.elProxyHost);
   p.putUShort("elPxPort", s.elProxyPort);
   p.putString("elPxPass", s.elProxyPass);
+  p.putBool("elPxOn", s.elUseProxy);
   p.putBool("elAccept", s.elAccept);
   p.putUShort("elIdle", s.elIdleMin);
 

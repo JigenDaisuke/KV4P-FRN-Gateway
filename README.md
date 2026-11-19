@@ -182,6 +182,8 @@ tutto passa in una sola connessione in uscita: è la scelta giusta con l'hotspot
 I proxy pubblici sono spesso occupati: nel campo proxy puoi scriverne **più d'uno separati da
 virgola** (es. `elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es`) e il gateway passa da
 solo al successivo. Elenco aggiornato: <https://www.echolink.org/proxylist.jsp>.
+La casella **Usa proxy** sceglie la modalità: con la spunta il gateway usa i proxy
+elencati, senza spunta usa l'UDP diretto (la lista resta salvata per quando ti serve).
 
 Il protocollo segue `echolib` di SvxLink: registrazione sul directory ogni 5 minuti
 (ONLINE/BUSY), ricerca del nodo nella lista delle stazioni, controllo RTCP (SDES ogni 10 s,

@@ -196,6 +196,7 @@ void handleConfig() {
   j.str("elPxHost", s.elProxyHost);
   j.num("elPxPort", s.elProxyPort);
   j.str("elPxPass", s.elProxyPass);
+  j.boolean("elPxOn", s.elUseProxy);
   j.boolean("elAccept", s.elAccept);
   j.num("elIdle", s.elIdleMin);
   j.boolean("dtmfOn", s.dtmfEnabled);
@@ -317,6 +318,7 @@ void handleSave() {
   s.elProxyHost.trim();
   s.elProxyPort = clampT<uint16_t>(argL("elPxPort", s.elProxyPort), 1, 65535);
   s.elProxyPass = arg("elPxPass", s.elProxyPass);
+  s.elUseProxy = server.hasArg("elPxOn");
   s.elAccept = server.hasArg("elAccept");
   s.elIdleMin = clampT<uint16_t>(argL("elIdle", s.elIdleMin), 0, 240);
 

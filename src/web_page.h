@@ -73,11 +73,12 @@ a{color:var(--ac2)}
  <label>Chiudi dopo inattivit&agrave; (min, 0 = mai)<input name="elIdle" type="number" min="0" max="240"></label></div>
  <label style="margin-top:12px">Messaggio informativo inviato a chi si collega<input name="elInfo"></label>
  <p class="hint">Il gateway &egrave; su <b>un sistema alla volta</b>. Dalla radio: <b>#*1</b> = FRN, <b>#*2</b> = EchoLink. In EchoLink: <b>#</b> + numero nodo = chiama il nodo (es. <b>#9999</b> = test), <b>#0</b> = chiudi il collegamento. Il nominativo -L deve essere validato da EchoLink.</p></div>
- <div class="card"><h2>Rete</h2><div class="grid">
- <label>Proxy EchoLink (vuoto = UDP diretto)<input name="elPxHost" placeholder="elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es"></label>
+ <div class="card"><h2>Rete</h2>
+ <label class="ck" style="margin-bottom:12px"><input type="checkbox" name="elPxOn">Usa proxy (senza spunta = UDP diretto)</label><div class="grid">
+ <label>Proxy EchoLink<input name="elPxHost" placeholder="elp1.iw9gdc.it, elp4.iw9gdc.it, echoproxy39.ec5w.es"></label>
  <label>Porta proxy<input name="elPxPort" type="number"></label>
  <label>Password proxy<input name="elPxPass"></label></div>
- <p class="hint">Senza proxy il gateway usa le porte UDP 5198 e 5199: per ricevere chiamate devi inoltrarle dal router all'IP del gateway. Con un proxy (es. in rete mobile) non serve aprire porte; per i proxy pubblici la password &egrave; PUBLIC. Puoi scrivere <b>pi&ugrave; proxy separati da virgola</b>: se uno &egrave; occupato il gateway passa da solo al successivo. Elenco aggiornato: <a href="https://www.echolink.org/proxylist.jsp" target="_blank">echolink.org/proxylist.jsp</a>.</p></div></section>
+ <p class="hint">Senza la spunta il gateway usa le porte UDP 5198 e 5199: per ricevere chiamate devi inoltrarle dal router all'IP del gateway. Con un proxy (es. in rete mobile) non serve aprire porte; per i proxy pubblici la password &egrave; PUBLIC. Puoi scrivere <b>pi&ugrave; proxy separati da virgola</b>: se uno &egrave; occupato il gateway passa da solo al successivo. Elenco aggiornato: <a href="https://www.echolink.org/proxylist.jsp" target="_blank">echolink.org/proxylist.jsp</a>.</p></div></section>
 <section class="tab" id="rad"><div class="card"><h2>Modulo radio</h2><div class="grid">
  <label>Modulo<select name="uhf"><option value="0">VHF 134-174 MHz</option><option value="1">UHF 400-480 MHz</option></select></label>
  <label>Frequenza RX (MHz)<input name="freqRx" type="number" step="0.00625"></label><label>Frequenza TX (MHz)<input name="freqTx" type="number" step="0.00625"></label>

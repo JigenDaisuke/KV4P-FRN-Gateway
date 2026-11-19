@@ -72,7 +72,7 @@ void Gateway::begin(const Settings& s, RadioSA818& radio) {
   frn_->setConfig(fc);
 
   // EchoLink: direct UDP or through a proxy
-  if (s.elProxyHost.length()) {
+  if (s.elUseProxy && s.elProxyHost.length()) {
     elTcp_ = new WiFiTransport(3000);
     el::ProxyNet* px = new el::ProxyNet(*elTcp_, elResolve);
     px->configure(s.elProxyHost.c_str(), s.elProxyPort, s.elCallsign.c_str(), s.elProxyPass.c_str());
