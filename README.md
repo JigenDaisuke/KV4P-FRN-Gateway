@@ -184,7 +184,7 @@ backoff, server di backup, catena audio completa, ID in CW, toni di cortesia e d
 
 ## Stato del progetto
 
-Versione 0.4.0: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
+Versione 0.4.1: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
 (stanza Prove, 18/11/2026). In corso la taratura audio. Da controllare in ogni installazione:
 
 - Il clock reale dell'ADC I2S (viene misurato e corretto in automatico, ma controlla il valore).
