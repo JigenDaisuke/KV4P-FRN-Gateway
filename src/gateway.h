@@ -13,6 +13,7 @@
 #include "frn_client.h"
 #include "radio_sa818.h"
 #include "settings.h"
+#include "tones.h"
 
 struct GatewayStatus {
   char gw[16];
@@ -35,6 +36,9 @@ class Gateway : public frn::Listener {
   void getStatus(GatewayStatus& out);
   // Wi-Fi up/down notifications from the main loop.
   void setNetworkUp(bool up) { netUp_ = up; }
+  // Plays a courtesy tone on air (web "Prova" buttons): 1 = end of FRN over,
+  // 2 = gateway taken (local over sent), 3 = gateway busy. Ignored if not idle.
+  void requestTestTone(int kind) { testTone_ = kind; }
 
   // frn::Listener
   void onFrnState(frn::State s) override;
@@ -47,7 +51,8 @@ class Gateway : public frn::Listener {
 
  private:
   enum class GwState : uint8_t { Idle, RfToNet, NetToRf, Lockout };
-  enum class TxPhase : uint8_t { KeyUp, Playing, Draining, CwId, Tail };
+  enum class TxPhase : uint8_t { KeyUp, Playing, Draining, Tone, CwId, Tail };
+  enum ToneKind : uint8_t { TONE_NONE = 0, TONE_QSO_END = 1, TONE_LOCAL = 2, TONE_BUSY = 3 };
 
   static void audioTaskEntry(void* arg);
   static void netTaskEntry(void* arg);
@@ -60,6 +65,10 @@ class Gateway : public frn::Listener {
   void endRfToNet(uint32_t now, const char* why);
   void startNetToRf(uint32_t now);
   void endNetToRf(uint32_t now, const char* why);
+  void startCourtesy(uint32_t now, uint8_t kind);
+  bool startTone(uint8_t kind);
+  void afterTone(uint32_t now);
+  void pumpGenerator(bool cw);
   void updateLed(uint32_t now);
   static const char* gwName(GwState s);
 
@@ -69,6 +78,10 @@ class Gateway : public frn::Listener {
   WiFiTransport* transport_ = nullptr;
   frn::Client* frn_ = nullptr;
   CwGenerator cw_;
+  ToneSequence tone_;
+  uint8_t pendingTone_ = TONE_NONE;  // tone to play when the current local TX drains
+  uint32_t rfPacketsSent_ = 0;       // packets that really went out in this local over
+  volatile int testTone_ = 0;
 
   StreamBufferHandle_t capture_ = nullptr;  // radio -> net
   StreamBufferHandle_t play_ = nullptr;     // net -> radio

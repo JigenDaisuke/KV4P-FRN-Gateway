@@ -36,8 +36,16 @@ ponte fra la stanza FRN e la frequenza radio.
 - Gateway half-duplex: squelch del modulo (pin SQ) o VOX o entrambi, ritardo apertura,
   coda, ritardo PTT→audio, coda TX, blocco RX dopo TX, buffer anti-jitter,
   **time-out** in entrambe le direzioni, sicurezza PTT (se il task di rete si blocca il PTT viene rilasciato).
+- **Toni di cortesia** ("coda" come un ponte radio), scegliendo fra 8 suoni:
+  a fine di ogni QSO ricevuto da FRN, quando la tua trasmissione è davvero
+  uscita su FRN (gateway impegnato) e, se vuoi, quando il gateway non ha preso la parola.
 - **Identificativo CW** automatico del nominativo a fine passaggio (al massimo ogni N minuti).
-- Pagina web di configurazione e stato (con log in tempo reale), protetta da password.
+- **Fino a 3 reti Wi-Fi** (casa, hotspot del cellulare, ufficio): si collega alla prima
+  della lista che trova attiva e, se la rete cade, ricerca da sola.
+- **Tipo stazione** selezionabile: Gateway (predefinito), Crosslink, PC Only.
+- **Potenza alta/bassa** del modulo (serve il pin H/L collegato, vedi sotto).
+- **Interfaccia web moderna** con tema scuro, chiaro o automatico, adatta anche al telefono:
+  stato in tempo reale, misuratore di livello, log, configurazione a schede.
 - Aggiornamento firmware via Wi-Fi (OTA) dalla pagina web.
 - Access point di configurazione al primo avvio o se il Wi-Fi non è raggiungibile.
 
@@ -56,6 +64,13 @@ Nessuna modifica: pin presi dal firmware ufficiale kv4p-ht (profilo "V1").
 | Polarizzazione ingresso | 26 | DAC2, 1,75 V |
 | LED | 2 | stato |
 | BOOT | 0 | tenuto premuto 5 s all'accensione = reset di fabbrica |
+
+**Potenza di trasmissione.** Sulla KV4P v1.x il pin H/L del modulo radio non è
+collegato all'ESP32 (nella configurazione ufficiale della v1.5 `PIN_HL = -1`), quindi il
+modulo lavora sempre in potenza alta (circa 1 W). Per regolare la potenza dalla pagina
+web collega con un filo il pin H/L del modulo al **GPIO23** e scegli
+*"GPIO23 con filo diretto"*: il firmware mette il pin a massa per la potenza bassa e lo
+lascia libero per quella alta. Sulla KV4P v2.0 scegli *"tramite transistor"*.
 
 Alimentazione: per un gateway fisso usa un alimentatore USB-C da 5 V / 2 A di qualità.
 Il modulo in trasmissione assorbe picchi importanti.
@@ -76,7 +91,7 @@ file `.pio/build/kv4p/firmware.bin`) oppure con `pio run -e kv4p-ota -t upload`.
 1. Senza Wi-Fi configurato la scheda crea la rete **`FRN-GW-xxxx`** (password `frngateway`).
 2. Collegati e apri **http://192.168.4.1/**. Utente `admin`, password `frngateway`.
 3. Compila i campi:
-   - **Wi-Fi**: SSID e password. Cambia anche la password della pagina web.
+   - **Wi-Fi**: fino a 3 reti in ordine di priorità. Cambia anche la password della pagina web.
    - **Server FRN**: `server.voip-italia.net`, porta `10024`, stanza `Nazionale`,
      e-mail e password FRN del gateway, nominativo, nome, città e nazione
      (tutti obbligatori: AlterFRN chiude la connessione se mancano).
@@ -135,12 +150,12 @@ Le parti portabili (protocollo FRN, codec, DSP, CW) hanno test che girano sul PC
 
 Il server FRN viene simulato: login (anche frammentato byte per byte), liste, keepalive,
 voce in arrivo, turno concesso e negato, concessione tardiva, login rifiutato, timeout,
-backoff, server di backup, catena audio completa e ID in CW. Risultato attuale:
-**102 controlli, 0 errori**.
+backoff, server di backup, catena audio completa, ID in CW e toni di cortesia. Risultato attuale:
+**152 controlli, 0 errori**.
 
 ## Stato del progetto
 
-Versione 0.2.0: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
+Versione 0.3.0: **login e collegamento verificati sul server AlterFRN di Voip-Italia**
 (stanza Prove, 18/11/2026). In corso la taratura audio. Da controllare in ogni installazione:
 
 - Il clock reale dell'ADC I2S (viene misurato e corretto in automatico, ma controlla il valore).

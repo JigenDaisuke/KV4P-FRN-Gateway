@@ -1,6 +1,7 @@
 #include "gateway.h"
 
 #include <WiFi.h>
+#include <string.h>
 
 #include "board_kv4p.h"
 #include "logbuf.h"
@@ -80,7 +81,7 @@ void Gateway::begin(const Settings& s, RadioSA818& radio) {
   call.toUpperCase();
   String on = call + ", " + s.frnName;
   fc.callsignAndUser = on.c_str();
-  fc.clientType = "1";  // gateway
+  fc.clientType = String((int)s.frnClientType).c_str();  // 0 crosslink, 1 gateway, 2 PC only
   fc.bandAndChannel = settings::bandChannel(s).c_str();
   fc.description = s.frnDescription.c_str();
   fc.country = s.frnCountry.c_str();
@@ -245,6 +246,11 @@ void Gateway::tick(uint32_t now) {
       }
       if (netVoiceActive_ && !netVoiceIgnored_) {
         startNetToRf(now);
+      } else if (testTone_) {
+        int k = testTone_;
+        testTone_ = 0;
+        LOGF("test tone %d requested from the web page", k);
+        startCourtesy(now, (uint8_t)k);
       } else if (!totLocked_ && sqStable && frnStarted_ && frn_->loggedIn()) {
         startRfToNet(now);
       } else {
@@ -293,24 +299,21 @@ void Gateway::tick(uint32_t now) {
           break;
         case TxPhase::Draining:
           if (buffered == 0 && now - phaseSince_ > 60) {
-            bool due = cfg_.cwIdEnabled && cfg_.frnCallsign.length() > 0 &&
-                       (!cwEverSent_ || now - lastCwId_ >= (uint32_t)cfg_.cwIdMinutes * 60000UL);
-            if (due) {
-              cw_.start(cfg_.frnCallsign.c_str(), cfg_.cwWpm, cfg_.cwToneHz, cfg_.cwLevel);
-              phase_ = TxPhase::CwId;
+            if (startTone(pendingTone_)) {
+              phase_ = TxPhase::Tone;
+              phaseSince_ = now;
             } else {
-              phase_ = TxPhase::Tail;
+              afterTone(now);
             }
-            phaseSince_ = now;
+            pendingTone_ = TONE_NONE;
           }
           break;
-        case TxPhase::CwId: {
-          int16_t tmp[160];
-          while (!cw_.done() && xStreamBufferSpacesAvailable(play_) >= sizeof(tmp)) {
-            size_t n = cw_.fill(tmp, 160);
-            if (n == 0) break;
-            xStreamBufferSend(play_, tmp, n * sizeof(int16_t), 0);
-          }
+        case TxPhase::Tone:
+          pumpGenerator(false);
+          if (tone_.done() && buffered == 0) afterTone(now);
+          break;
+        case TxPhase::CwId:
+          pumpGenerator(true);
           if (cw_.done() && buffered == 0) {
             lastCwId_ = now;
             cwEverSent_ = true;
@@ -319,7 +322,6 @@ void Gateway::tick(uint32_t now) {
             phaseSince_ = now;
           }
           break;
-        }
         case TxPhase::Tail:
           if (now - phaseSince_ >= cfg_.txTailMs) endNetToRf(now, "end of over");
           break;
@@ -329,6 +331,58 @@ void Gateway::tick(uint32_t now) {
   }
 }
 
+// --- courtesy tones / CW ---------------------------------------------------
+void Gateway::pumpGenerator(bool cw) {
+  int16_t tmp[160];
+  while (xStreamBufferSpacesAvailable(play_) >= sizeof(tmp)) {
+    size_t n = cw ? cw_.fill(tmp, 160) : tone_.fill(tmp, 160);
+    if (n == 0) break;
+    xStreamBufferSend(play_, tmp, n * sizeof(int16_t), 0);
+  }
+}
+
+bool Gateway::startTone(uint8_t kind) {
+  uint8_t preset = 0;
+  uint16_t hz = 1000;
+  switch (kind) {
+    case TONE_QSO_END: preset = cfg_.toneQsoEnd; hz = cfg_.toneQsoEndHz; break;
+    case TONE_LOCAL: preset = cfg_.toneLocal; hz = cfg_.toneLocalHz; break;
+    case TONE_BUSY: preset = cfg_.toneBusy; hz = cfg_.toneBusyHz; break;
+    default: return false;
+  }
+  if (preset == 0) return false;
+  tone_.start(preset, hz, cfg_.toneLevel);
+  return !tone_.done();
+}
+
+// After the courtesy tone: CW identification if due, then the TX tail.
+void Gateway::afterTone(uint32_t now) {
+  if (netVoiceActive_) {  // the next station started meanwhile: keep the PTT down
+    phase_ = TxPhase::Playing;
+    phaseSince_ = now;
+    return;
+  }
+  bool due = cfg_.cwIdEnabled && cfg_.frnCallsign.length() > 0 &&
+             (!cwEverSent_ || now - lastCwId_ >= (uint32_t)cfg_.cwIdMinutes * 60000UL);
+  if (due) {
+    cw_.start(cfg_.frnCallsign.c_str(), cfg_.cwWpm, cfg_.cwToneHz, cfg_.cwLevel);
+    phase_ = TxPhase::CwId;
+  } else {
+    phase_ = TxPhase::Tail;
+  }
+  phaseSince_ = now;
+}
+
+// Key up only to send a courtesy tone (after a local over, or a test).
+void Gateway::startCourtesy(uint32_t now, uint8_t kind) {
+  uint8_t preset = kind == TONE_LOCAL ? cfg_.toneLocal : kind == TONE_BUSY ? cfg_.toneBusy : cfg_.toneQsoEnd;
+  if (preset == 0) return;
+  netVoiceIgnored_ = false;
+  startNetToRf(now);
+  pendingTone_ = kind;
+  LOGF("courtesy tone: %s", tones::presetName(preset));
+}
+
 // --- radio -> FRN ---------------------------------------------------------
 static bool trimPending = false;
 
@@ -336,6 +390,7 @@ void Gateway::startRfToNet(uint32_t now) {
   gs_ = GwState::RfToNet;
   gsSince_ = now;
   trimPending = false;
+  rfPacketsSent_ = 0;
   frn_->requestTx(now);
   LOGF("RADIO->FRN: carrier detected, requesting the floor");
 }
@@ -363,12 +418,13 @@ void Gateway::pumpRfToNet(uint32_t now, bool final) {
   while (avail >= (size_t)frn::PACKET_SAMPLES) {
     xStreamBufferReceive(capture_, txPcm, sizeof(txPcm), 0);
     if (!frn_->sendVoice(txPcm, now)) return;
+    rfPacketsSent_++;
     avail -= frn::PACKET_SAMPLES;
   }
   if (final && avail > 0) {
     size_t got = xStreamBufferReceive(capture_, txPcm, avail * sizeof(int16_t), 0) / sizeof(int16_t);
     for (size_t i = got; i < (size_t)frn::PACKET_SAMPLES; i++) txPcm[i] = 0;
-    frn_->sendVoice(txPcm, now);
+    if (frn_->sendVoice(txPcm, now)) rfPacketsSent_++;
   }
 }
 
@@ -381,6 +437,12 @@ void Gateway::endRfToNet(uint32_t now, const char* why) {
            (unsigned long)((dur % 1000) / 100), why);
   gs_ = GwState::Idle;
   gsSince_ = now;
+  // "Coda": tell the local station whether its over really went out on FRN.
+  const bool timeout = strcmp(why, "TIME-OUT") == 0;
+  if (strcmp(why, "FRN disconnected") != 0 && strcmp(why, "Wi-Fi down") != 0) {
+    if (rfPacketsSent_ > 0 && !timeout) startCourtesy(now, TONE_LOCAL);
+    else startCourtesy(now, TONE_BUSY);
+  }
 }
 
 // --- FRN -> radio ---------------------------------------------------------
@@ -392,7 +454,8 @@ void Gateway::startNetToRf(uint32_t now) {
   gs_ = GwState::NetToRf;
   phase_ = TxPhase::KeyUp;
   gsSince_ = phaseSince_ = now;
-  LOGF("FRN->RADIO: %s", talker_);
+  pendingTone_ = TONE_QSO_END;
+  if (netVoiceActive_) LOGF("FRN->RADIO: %s", talker_);
 }
 
 void Gateway::endNetToRf(uint32_t now, const char* why) {
@@ -414,9 +477,11 @@ void Gateway::onFrnVoiceStart(const char* who) {
     netVoiceIgnored_ = false;
     startNetToRf(now);
   } else if (gs_ == GwState::NetToRf) {
-    if (phase_ == TxPhase::Draining || phase_ == TxPhase::Tail) {
-      phase_ = TxPhase::Playing;  // next station right away: keep the PTT down
+    if (phase_ == TxPhase::Draining || phase_ == TxPhase::Tail || phase_ == TxPhase::KeyUp) {
+      if (phase_ != TxPhase::KeyUp) phase_ = TxPhase::Playing;  // next station right away: keep the PTT down
       phaseSince_ = now;
+      pendingTone_ = TONE_QSO_END;
+      LOGF("FRN->RADIO: %s", talker_);
     }
   } else {
     netVoiceIgnored_ = true;  // local station is talking: don't double
@@ -426,7 +491,7 @@ void Gateway::onFrnVoiceStart(const char* who) {
 
 void Gateway::onFrnVoice(const int16_t* pcm, size_t samples) {
   if (gs_ != GwState::NetToRf || netVoiceIgnored_) return;
-  if (phase_ == TxPhase::CwId || phase_ == TxPhase::Tail) return;
+  if (phase_ == TxPhase::Tone || phase_ == TxPhase::CwId || phase_ == TxPhase::Tail) return;
   size_t bytes = samples * sizeof(int16_t);
   if (xStreamBufferSpacesAvailable(play_) >= bytes) xStreamBufferSend(play_, pcm, bytes, 0);
 }

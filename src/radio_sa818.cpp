@@ -66,6 +66,25 @@ bool RadioSA818::configure(const Settings& s) {
   return ok && okv && okf;
 }
 
+bool RadioSA818::applyPower(const Settings& s) {
+  switch (s.powerPinMode) {
+    case 1:  // straight wire to the module: pull LOW for low power, leave open for high
+      if (s.highPower) {
+        pinMode(board::PIN_HL, INPUT);
+      } else {
+        pinMode(board::PIN_HL, OUTPUT);
+        digitalWrite(board::PIN_HL, LOW);
+      }
+      return true;
+    case 2:  // KV4P v2.0: transistor driver, inverted
+      pinMode(board::PIN_HL, OUTPUT);
+      digitalWrite(board::PIN_HL, s.highPower ? LOW : HIGH);
+      return true;
+    default:
+      return false;  // H/L not connected: module at its default (high) power
+  }
+}
+
 void RadioSA818::setPtt(bool transmit) {
   ptt_ = transmit;
   digitalWrite(board::PIN_PTT, transmit ? LOW : HIGH);

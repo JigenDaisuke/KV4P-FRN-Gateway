@@ -13,6 +13,7 @@
 #include "frn_client.h"
 #include "frn_codec.h"
 #include "resampler.h"
+#include "tones.h"
 
 static int failures = 0, checks = 0;
 #define CHECK(cond)                                                    \
@@ -618,6 +619,33 @@ static void testCw() {
   CHECK(peak > 5500 && peak <= 6000);
 }
 
+static void testTones() {
+  printf("[courtesy tones]\n");
+  ToneSequence t;
+  t.start(0, 1000, 6000);
+  int16_t b[160];
+  CHECK(t.done());
+  CHECK(t.fill(b, 160) == 0);
+  for (int p = 1; p < tones::PRESETS; p++) {
+    t.start(p, 1000, 6000);
+    CHECK(!t.done());
+    std::vector<int16_t> out;
+    size_t n;
+    int guard = 0;
+    while ((n = t.fill(b, 160)) > 0 && guard++ < 1000) out.insert(out.end(), b, b + n);
+    CHECK(t.done());
+    int16_t peak = 0;
+    for (auto v : out) peak = v > peak ? v : peak;
+    double ms = out.size() / 8.0;
+    printf("  %-18s %4.0f ms  peak %d\n", tones::presetName(p), ms, peak);
+    CHECK(ms > 100 && ms < 1200);
+    CHECK(peak > 5000 && peak <= 6000);
+    // no clicks: first and last samples near zero
+    CHECK(abs(out.front()) < 600);
+    CHECK(abs(out.back()) < 600);
+  }
+}
+
 int main() {
   testLogin();
   testListsAndKeepalive();
@@ -630,6 +658,7 @@ int main() {
   testDsp();
   testChain();
   testCw();
+  testTones();
   printf("\n%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;
 }

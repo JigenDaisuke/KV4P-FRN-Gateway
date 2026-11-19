@@ -2,10 +2,12 @@
 #pragma once
 #include <Arduino.h>
 
+constexpr int WIFI_SLOTS = 3;
+
 struct Settings {
-  // Wi-Fi
-  String wifiSsid;
-  String wifiPass;
+  // Wi-Fi: up to 3 networks, tried in this order (first one visible wins)
+  String wifiSsid[WIFI_SLOTS];
+  String wifiPass[WIFI_SLOTS];
   String hostname = "frn-gateway";
   String webPass = "frngateway";   // web page login: user "admin"
 
@@ -24,8 +26,9 @@ struct Settings {
   String frnCountry = "Italy";
   String frnCity;                // "Roma - Centro"
   String frnBandChannel;         // empty = generated from radio settings
+  uint8_t frnClientType = 1;     // 0 = Crosslink, 1 = Gateway, 2 = PC Only
 
-  // Radio (SA818)
+  // Radio (SA818 / DRA818)
   bool uhf = false;              // module variant: false = VHF (134-174), true = UHF (400-480)
   float freqRx = 145.5000f;      // MHz
   float freqTx = 145.5000f;      // MHz (simplex gateway: same as RX)
@@ -37,6 +40,12 @@ struct Settings {
   bool filterEmphasis = true;    // SA818 pre/de-emphasis
   bool filterHighpass = true;    // SA818 300 Hz high-pass (removes CTCSS from audio)
   bool filterLowpass = true;     // SA818 3 kHz low-pass
+  bool highPower = true;         // H/L: true = high (~1 W), false = low (~0.5 W)
+  // How the module H/L pin is wired:
+  //   0 = not connected (KV4P v1.x stock: module always at high power)
+  //   1 = GPIO23 wired straight to H/L (v1.x mod): LOW = low power, open = high
+  //   2 = GPIO23 through a transistor (KV4P v2.0): LOW = high power, HIGH = low
+  uint8_t powerPinMode = 0;
 
   // Gateway behaviour
   uint8_t sqMode = 0;            // 0 = SA818 SQ pin, 1 = audio level (VOX), 2 = both
@@ -51,6 +60,15 @@ struct Settings {
   float rxGain = 1.0f;           // radio -> net digital gain
   float txGain = 1.0f;           // net -> radio digital gain
 
+  // Courtesy tones ("coda" like a repeater). Preset 0 = off, see tones.h
+  uint8_t toneQsoEnd = 1;        // after every over received from FRN
+  uint16_t toneQsoEndHz = 1000;
+  uint8_t toneLocal = 3;         // after MY over, when it really went out on FRN
+  uint16_t toneLocalHz = 1200;
+  uint8_t toneBusy = 0;          // after my over when the gateway could NOT take it
+  uint16_t toneBusyHz = 500;
+  uint16_t toneLevel = 6000;     // amplitude (int16)
+
   // CW identification on the radio side
   bool cwIdEnabled = true;
   uint8_t cwIdMinutes = 10;      // send callsign in CW after an over, at most every N min
@@ -63,8 +81,10 @@ namespace settings {
 void load(Settings& s);
 void save(const Settings& s);
 void factoryReset();
-// "145.50000FM CTC88.5" style string for the FRN <BC> field.
+// "145.50000FM CTC88.5" style string for the FRN <BC> field
+// ("Crosslink" / "PC Only" for those client types).
 String bandChannel(const Settings& s);
+bool anyWifi(const Settings& s);
 // Standard CTCSS table, index 1..38 (index 0 = none).
 float ctcssHz(uint8_t index);
 }  // namespace settings

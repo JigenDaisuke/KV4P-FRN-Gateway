@@ -11,9 +11,9 @@
 #include "logbuf.h"
 #include "radio_sa818.h"
 #include "settings.h"
+#include "version.h"
 #include "web_ui.h"
 
-#define FW_VERSION "0.2.0"
 
 static Settings cfg;
 static RadioSA818 radio;
@@ -59,6 +59,37 @@ static void startAccessPoint() {
        WiFi.softAPIP().toString().c_str());
 }
 
+// Scan and connect to the first configured network (in priority order) that
+// is on the air. With `blind`, networks not seen in the scan (hidden SSIDs)
+// are also tried at the end. Blocking: used at boot and on long outages.
+static bool connectFirstAvailable(uint32_t waitMs, bool blind) {
+  if (!settings::anyWifi(cfg)) return false;
+  int n = WiFi.scanNetworks();
+  bool seen[WIFI_SLOTS] = {false, false, false};
+  for (int slot = 0; slot < WIFI_SLOTS; slot++)
+    for (int i = 0; i < n && cfg.wifiSsid[slot].length(); i++)
+      if (WiFi.SSID(i) == cfg.wifiSsid[slot]) seen[slot] = true;
+  WiFi.scanDelete();
+  for (int pass = 0; pass < (blind ? 2 : 1); pass++) {
+    for (int slot = 0; slot < WIFI_SLOTS; slot++) {
+      const String& ssid = cfg.wifiSsid[slot];
+      if (!ssid.length() || seen[slot] != (pass == 0)) continue;
+      LOGF("Wi-Fi: connecting to '%s' (network %d%s)", ssid.c_str(), slot + 1, pass ? ", not seen in scan" : "");
+      WiFi.begin(ssid.c_str(), cfg.wifiPass[slot].c_str());
+      uint32_t t0 = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - t0 < waitMs) {
+        digitalWrite(board::PIN_LED, (millis() / 250) & 1);
+        webui::loop();  // keep the config page responsive
+        delay(50);
+      }
+      if (WiFi.status() == WL_CONNECTED) return true;
+      LOGF("Wi-Fi: '%s' did not connect (password?)", ssid.c_str());
+      WiFi.disconnect();
+    }
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -77,6 +108,10 @@ void setup() {
     else
       LOGF("SA818 configuration error (last reply '%s') - check frequency vs VHF/UHF module",
            radio.lastReply().c_str());
+    if (radio.applyPower(cfg))
+      LOGF("TX power: %s", cfg.highPower ? "HIGH (~1 W)" : "LOW (~0.5 W)");
+    else
+      LOGF("TX power: fixed by hardware (H/L pin not wired, module at high power)");
   } else {
     LOGF("SA818 NOT responding - check module / power");
   }
@@ -86,25 +121,16 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // modem sleep adds latency and jitter to the audio stream
   WiFi.setAutoReconnect(true);
-  if (cfg.wifiSsid.length()) {
-    LOGF("Wi-Fi: connecting to '%s'", cfg.wifiSsid.c_str());
-    WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPass.c_str());
-    uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {
-      digitalWrite(board::PIN_LED, (millis() / 250) & 1);
-      delay(50);
-    }
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    LOGF("Wi-Fi OK: %s  RSSI %d dBm  -> http://%s/ or http://%s.local/", WiFi.localIP().toString().c_str(),
-         WiFi.RSSI(), WiFi.localIP().toString().c_str(), cfg.hostname.c_str());
+  webui::begin(cfg, gateway);  // before connecting, so the page answers as soon as possible
+  if (connectFirstAvailable(15000, true)) {
+    LOGF("Wi-Fi OK: '%s' %s  RSSI %d dBm  -> http://%s/ or http://%s.local/", WiFi.SSID().c_str(),
+         WiFi.localIP().toString().c_str(), WiFi.RSSI(), WiFi.localIP().toString().c_str(), cfg.hostname.c_str());
     staConnectedSince = millis();
   } else {
     startAccessPoint();
   }
   if (MDNS.begin(cfg.hostname.c_str())) MDNS.addService("http", "tcp", 80);
 
-  webui::begin(cfg, gateway);
   gateway.begin(cfg, radio);
   if (!frnProfileComplete())
     LOGF("FRN profile incomplete: fill in e-mail, password, callsign, name, city and country on the web page");
@@ -114,14 +140,28 @@ void loop() {
   webui::loop();
 
   static bool wasUp = false;
+  static uint32_t downSince = 0, lastAttempt = 0;
   bool up = WiFi.status() == WL_CONNECTED;
   if (up != wasUp) {
     wasUp = up;
     if (up) {
-      LOGF("Wi-Fi up: %s", WiFi.localIP().toString().c_str());
+      LOGF("Wi-Fi up: '%s' %s", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
       staConnectedSince = millis();
     } else {
       LOGF("Wi-Fi down");
+      downSince = millis();
+    }
+  }
+  // Network lost for a while (e.g. moved from home to the car hotspot):
+  // rescan and take the first configured network that is on the air.
+  if (!up && settings::anyWifi(cfg)) {
+    uint32_t now = millis();
+    uint32_t every = apActive ? 60000 : 30000;  // don't block the config AP too often
+    if (now - downSince > 15000 && now - lastAttempt > every) {
+      lastAttempt = now;
+      WiFi.disconnect();
+      if (!connectFirstAvailable(10000, false) && !apActive) startAccessPoint();
+      up = WiFi.status() == WL_CONNECTED;
     }
   }
   // Only run FRN when credentials exist (avoids hammering the server).

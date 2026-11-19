@@ -9,6 +9,9 @@ class RadioSA818 {
   bool begin(HardwareSerial& port);      // power up + handshake
   bool configure(const Settings& s);     // frequency, tones, squelch, volume, filters
   void setPtt(bool transmit);
+  // Applies settings.highPower according to settings.powerPinMode.
+  // Returns false when the H/L pin is not wired (power fixed by hardware).
+  bool applyPower(const Settings& s);
   bool ptt() const { return ptt_; }
   // Hardware squelch: true when the module reports a signal.
   bool carrier() const { return digitalRead(board_sq_) == LOW; }

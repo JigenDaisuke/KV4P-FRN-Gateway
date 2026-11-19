@@ -7,7 +7,7 @@
 
 class CwGenerator {
  public:
-  void start(const char* text, int wpm, int toneHz, int amplitude) {
+  void start(const char* text, int wpm, int toneHz, int amplitude, int leadMs = 250, int tailMs = 200) {
     strncpy(text_, text, sizeof(text_) - 1);
     text_[sizeof(text_) - 1] = 0;
     dot_ = (uint32_t)(8000 * 1.2f / (wpm < 5 ? 5 : wpm));  // samples per dot
@@ -15,7 +15,8 @@ class CwGenerator {
     amp_ = (float)amplitude;
     ch_ = 0;
     sym_ = nullptr;
-    remain_ = 8000 / 4;  // 250 ms leading silence
+    remain_ = (uint32_t)(leadMs * 8);  // leading silence
+    tail_ = (uint32_t)(tailMs * 8);
     on_ = false;
     phase_ = 0;
     pos_ = 0;
@@ -87,7 +88,7 @@ class CwGenerator {
     if (text_[ch_] == 0) {
       if (!tailDone_) {
         tailDone_ = true;
-        segment(false, 8000 / 5);  // 200 ms trailing silence
+        segment(false, tail_);  // trailing silence
         return true;
       }
       tailDone_ = false;
@@ -109,7 +110,7 @@ class CwGenerator {
   char text_[32] = {0};
   const char* sym_ = nullptr;
   int ch_ = 0;
-  uint32_t dot_ = 480, remain_ = 0, pos_ = 0, len_ = 0;
+  uint32_t dot_ = 480, remain_ = 0, pos_ = 0, len_ = 0, tail_ = 1600;
   float w_ = 0, amp_ = 0, phase_ = 0;
   bool on_ = false, gap_ = false, done_ = true, tailDone_ = false;
 };
