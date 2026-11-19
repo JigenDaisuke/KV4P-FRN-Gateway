@@ -1,2 +1,2 @@
 #pragma once
-#define FW_VERSION "0.5.6-test"
+#define FW_VERSION "0.5.7-test"

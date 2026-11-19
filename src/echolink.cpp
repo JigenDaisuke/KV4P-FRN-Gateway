@@ -404,7 +404,8 @@ static void splitCallName(const std::string& id, std::string& call, std::string&
 void Client::sendSdes() {
   uint8_t p[300];
   size_t n = makeSdes(p, cfg_.callsign, cfg_.sysopName);
-  net_.sendCtrl(rip_, p, n);
+  bool ok = net_.sendCtrl(rip_, p, n);
+  if (!ok || dbgPackets_ > 0) log("SDES to %s: %u bytes %s", ipToString(rip_).c_str(), (unsigned)n, ok ? "sent" : "NOT SENT");
   lastSdesTx_ = now_;
 }
 
